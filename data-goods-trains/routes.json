@@ -1,0 +1,74 @@
+[
+  {
+    "route_id": "R01",
+    "route_name": "Synthetic North-South Freight Corridor",
+    "stations": [
+      {
+        "station_id": "ST01",
+        "sequence": 1,
+        "distance_from_origin_km": 0
+      },
+      {
+        "station_id": "ST02",
+        "sequence": 2,
+        "distance_from_origin_km": 25
+      },
+      {
+        "station_id": "ST03",
+        "sequence": 3,
+        "distance_from_origin_km": 50
+      },
+      {
+        "station_id": "ST04",
+        "sequence": 4,
+        "distance_from_origin_km": 70
+      },
+      {
+        "station_id": "ST05",
+        "sequence": 5,
+        "distance_from_origin_km": 85
+      },
+      {
+        "station_id": "ST06",
+        "sequence": 6,
+        "distance_from_origin_km": 110
+      },
+      {
+        "station_id": "ST07",
+        "sequence": 7,
+        "distance_from_origin_km": 140
+      },
+      {
+        "station_id": "ST08",
+        "sequence": 8,
+        "distance_from_origin_km": 170
+      }
+    ]
+  },
+  {
+    "route_id": "R02",
+    "route_name": "Synthetic East Freight Corridor",
+    "stations": [
+      {
+        "station_id": "ST01",
+        "sequence": 1,
+        "distance_from_origin_km": 0
+      },
+      {
+        "station_id": "ST02",
+        "sequence": 2,
+        "distance_from_origin_km": 30
+      },
+      {
+        "station_id": "ST09",
+        "sequence": 3,
+        "distance_from_origin_km": 60
+      },
+      {
+        "station_id": "ST10",
+        "sequence": 4,
+        "distance_from_origin_km": 95
+      }
+    ]
+  }
+]
