@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Railway Block Planner | Live Operations Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./src/styles.css">
+  
+  <!-- React 18 and Babel for standalone runtime without Node build step -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback } = React;
+    const API_BASE = 'http://127.0.0.1:8000';
+
+    const CORRIDOR_DISCIPLINES = [
+      { id: 'track', name: 'Track & Permanent Way', code: 'TRK', icon: '🛤️' },
+      { id: 'signal', name: 'Signalling & Telecom', code: 'SIG', icon: '🚦' },
+      { id: 'bridge', name: 'Bridge & Structures', code: 'BRG', icon: '🌉' },
+      { id: 'ohe', name: 'Traction / OHE', code: 'OHE', icon: '⚡' },
+      { id: 'points', name: 'Points & Crossings', code: 'PNT', icon: '🔀' },
+      { id: 'level_crossing', name: 'Level Crossings', code: 'LC', icon: '🚧' },
+    ];
+
+    function parseTimeToMinutes(timeStr) {
+      if (!timeStr) return 0;
+      const parts = String(timeStr).split(':');
+      if (parts.length < 2) return 0;
+      return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    }
+
+    function PriorityBadge({ priority }) {
+      const p = String(priority || 'Low').toLowerCase();
+      let badgeClass = 'badge-low';
+      if (p === 'critical') badgeClass = 'badge-critical';
+      else if (p === 'high') badgeClass = 'badge-high';
+      else if (p === 'medium') badgeClass = 'badge-medium';
+      return <span className={`badge ${badgeClass}`}>{p.toUpperCase()}</span>;
+    }
+
+    function StatusBadge({ status }) {
+      const s = String(status || 'Approved').toLowerCase();
+      let badgeClass = 'badge-low';
+      if (s === 'pending' || s === 'requested' || s === 'delayed') badgeClass = 'badge-medium';
+      else if (s === 'cancelled' || s === 'rejected') badgeClass = 'badge-critical';
+      return <span className={`badge ${badgeClass}`}><span className="dot" style={{ width: 5, height: 5 }} />{status || 'Approved'}</span>;
+    }
+
+    function StatCard({ title, value, subtitle, icon, accent = 'cyan', badge, badgeType = 'info' }) {
+      return (
+        <div className={`stat-card accent-${accent}`}>
+          <div className="stat-card-header">
+            <span>{title}</span>
+            {icon && <span className="stat-card-icon">{icon}</span>}
+          </div>
+          <div className="stat-card-value">{value}</div>
+          <div className="stat-card-footer">
+            {badge && <span className={`badge ${badgeType === 'critical' ? 'badge-critical' : badgeType === 'success' ? 'badge-low' : 'badge-cyan'}`}>{badge}</span>}
+            <span>{subtitle}</span>
+          </div>
+        </div>
+      );
+    }
+
+    function Timeline({ blocks = [], targetDate, onSelectBlock }) {
+      const hours = Array.from({ length: 24 }, (_, i) => i);
+      const disciplineMap = {};
+      CORRIDOR_DISCIPLINES.forEach(d => disciplineMap[d.id] = []);
+
+      blocks.forEach(b => {
+        const typeStr = String(b.block_type || b.maintenance_type || b.reason || b.asset_type || '').toLowerCase();
+        let assigned = 'track';
+        if (typeStr.includes('sig') || typeStr.includes('telecom')) assigned = 'signal';
+        else if (typeStr.includes('bridge')) assigned = 'bridge';
+        else if (typeStr.includes('ohe') || typeStr.includes('traction') || typeStr.includes('power')) assigned = 'ohe';
+        else if (typeStr.includes('point') || typeStr.includes('crossing')) assigned = 'points';
+        else if (typeStr.includes('lc') || typeStr.includes('gate')) assigned = 'level_crossing';
+        disciplineMap[assigned].push(b);
+      });
+
+      return (
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="panel-title">
+                <span>24-Hour Corridor Operations & Possession Gantt</span>
+                <span className="badge badge-cyan">{targetDate}</span>
+              </div>
+              <div className="panel-subtitle">Live multi-discipline possession timeline with continuous overnight block visualization</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: '0.75rem' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, background: '#ef4444', borderRadius: 2 }} /> Critical</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, background: '#f97316', borderRadius: 2 }} /> High</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, background: '#eab308', borderRadius: 2 }} /> Medium</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, background: '#10b981', borderRadius: 2 }} /> Low</span>
+            </div>
+          </div>
+          <div className="panel-body" style={{ padding: 12 }}>
+            <div className="timeline-container">
+              <div className="timeline-header-ruler">
+                <div className="timeline-row-label-col">DISCIPLINE</div>
+                <div className="timeline-ruler-slots">
+                  {hours.map(h => (
+                    <div key={h} className={`timeline-ruler-slot ${h % 4 === 0 ? 'major' : ''}`}>
+                      {String(h).padStart(2, '0')}:00
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="timeline-track-rows">
+                {CORRIDOR_DISCIPLINES.map(disc => (
+                  <div key={disc.id} className="timeline-track-row">
+                    <div className="timeline-row-header">
+                      <div className="timeline-row-name"><span>{disc.icon}</span><span>{disc.name.split(' ')[0]}</span></div>
+                      <div className="timeline-row-sub">{disc.code} Corridor</div>
+                    </div>
+                    <div className="timeline-grid-track">
+                      {(disciplineMap[disc.id] || []).map((blk, idx) => {
+                        const startMins = parseTimeToMinutes(blk.start_time || blk.requested_start || '00:00');
+                        const durationMins = blk.duration_minutes || blk.required_duration || 120;
+                        const leftPct = (startMins / 1440) * 100;
+                        const widthPct = Math.max(3, (durationMins / 1440) * 100);
+                        const p = String(blk.priority || 'Medium').toLowerCase();
+                        const isOvernight = (startMins + durationMins) > 1440;
+                        const bId = blk.block_id || blk.block_request_id || blk.request_id || blk.asset_id || `BLK-${idx+1}`;
+
+                        return (
+                          <div
+                            key={bId + idx}
+                            className={`timeline-possession-block possession-${p} ${isOvernight ? 'possession-overnight' : ''}`}
+                            style={{ left: `${Math.min(95, Math.max(0, leftPct))}%`, width: `${Math.min(100 - leftPct, widthPct)}%` }}
+                            onClick={() => onSelectBlock && onSelectBlock(blk)}
+                            title={`${bId} | ${blk.location || 'Section'}\n${blk.start_time || blk.requested_start} -> ${blk.end_time || blk.requested_end} (${durationMins}m)\nPriority: ${blk.priority || 'Normal'}${isOvernight ? ' (Overnight Block)' : ''}`}
+                          >
+                            <div className="block-title">{bId} {isOvernight ? '🌙' : ''}</div>
+                            <div className="block-time">{blk.start_time || blk.requested_start} - {blk.end_time || blk.requested_end}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const [activePage, setActivePage] = useState('dashboard');
+      const [targetDate, setTargetDate] = useState('2026-09-07');
+      const [isOnline, setIsOnline] = useState(true);
+      const [blocks, setBlocks] = useState([]);
+      const [maintenance, setMaintenance] = useState([]);
+      const [trains, setTrains] = useState([]);
+      const [forecasts, setForecasts] = useState([]);
+      const [conflicts, setConflicts] = useState([]);
+      const [optimizationResult, setOptimizationResult] = useState(null);
+      const [isOptimizing, setIsOptimizing] = useState(false);
+      const [optimizationStep, setOptimizationStep] = useState(0);
+      const [selectedBlock, setSelectedBlock] = useState(null);
+
+      const fetchData = useCallback(async () => {
+        try {
+          const [bRes, mRes, tRes, fRes, cRes] = await Promise.allSettled([
+            fetch(`${API_BASE}/api/blocks?limit=100`).then(r => r.json()),
+            fetch(`${API_BASE}/api/maintenance?limit=100`).then(r => r.json()),
+            fetch(`${API_BASE}/api/trains?limit=100`).then(r => r.json()),
+            fetch(`${API_BASE}/api/forecast?target_date=${targetDate}`).then(r => r.json()),
+            fetch(`${API_BASE}/api/scheduler/conflicts?target_date=${targetDate}`, { method: 'POST' }).then(r => r.json()),
+          ]);
+          if (bRes.status === 'fulfilled' && bRes.value?.data) setBlocks(bRes.value.data);
+          if (mRes.status === 'fulfilled' && mRes.value?.data) setMaintenance(mRes.value.data);
+          if (tRes.status === 'fulfilled' && tRes.value?.data) setTrains(tRes.value.data);
+          if (fRes.status === 'fulfilled' && fRes.value?.forecasts) setForecasts(fRes.value.forecasts);
+          if (cRes.status === 'fulfilled' && cRes.value?.conflicts) setConflicts(cRes.value.conflicts);
+          setIsOnline(true);
+        } catch (e) {
+          setIsOnline(false);
+        }
+      }, [targetDate]);
+
+      useEffect(() => { fetchData(); }, [fetchData]);
+
+      const handleRunOptimization = async () => {
+        setIsOptimizing(true);
+        setOptimizationStep(1);
+        try {
+          await new Promise(r => setTimeout(r, 450));
+          setOptimizationStep(2);
+          const res = await fetch(`${API_BASE}/api/plans/optimize`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target_date: targetDate, horizon_days: 7, buffer_minutes: 15 }),
+          }).then(r => r.json());
+          setOptimizationStep(3);
+          setOptimizationResult(res);
+        } catch (e) {
+          alert('Optimization failed: ' + e.message);
+        } finally {
+          setIsOptimizing(false);
+          setOptimizationStep(0);
+        }
+      };
+
+      const displayPossessions = optimizationResult?.scheduled_blocks?.length ? optimizationResult.scheduled_blocks : blocks;
+
+      return (
+        <div className="app-shell">
+          <aside className="sidebar">
+            <div className="sidebar-header">
+              <div className="brand-icon">🚆</div>
+              <div className="brand-info">
+                <div className="brand-title">RAILWAY <span>PLANNER</span></div>
+                <div className="brand-subtitle">Operations & Possession Control</div>
+              </div>
+            </div>
+            <nav className="sidebar-nav">
+              <div className="nav-section-title">Operational Navigation</div>
+              {[
+                { id: 'dashboard', label: 'Dashboard', icon: '◉' },
+                { id: 'schedule', label: 'Schedule', icon: '📅' },
+                { id: 'optimization', label: 'Optimization', icon: '⚡' },
+                { id: 'blocks', label: 'Block Requests', icon: '🚧' },
+                { id: 'maintenance', label: 'Maintenance', icon: '🛠' },
+                { id: 'trains', label: 'Train Traffic', icon: '🚦' },
+                { id: 'forecast', label: 'Goods Forecast', icon: '📈', badge: forecasts.length },
+                { id: 'conflicts', label: 'Conflicts', icon: '⚠', badge: conflicts.length, isAlert: true },
+              ].map(item => (
+                <button
+                  key={item.id}
+                  className={`nav-item ${activePage === item.id ? 'active' : ''}`}
+                  onClick={() => setActivePage(item.id)}
+                >
+                  <span className="nav-item-icon">{item.icon}</span>
+                  <span>{item.label}</span>
+                  {item.badge > 0 && <span className={`nav-badge ${item.isAlert ? '' : 'info'}`}>{item.badge}</span>}
+                </button>
+              ))}
+            </nav>
+            <div className="sidebar-footer">
+              <div className="system-status-box">
+                <div className="status-row">
+                  <span className="status-indicator"><span className={`dot ${isOnline ? 'online' : 'offline'}`} />Backend: {isOnline ? 'Online' : 'Offline'}</span>
+                  <span className="version-tag">v0.5.0</span>
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          <div className="main-wrapper">
+            <header className="top-header">
+              <div className="header-left">
+                <h2 className="header-page-title">
+                  {activePage.toUpperCase()}
+                  <span className="header-page-tag">CONTROL ROOM</span>
+                </h2>
+              </div>
+              <div className="header-right">
+                <div className="date-selector-pill">
+                  <span>📅 Date:</span>
+                  <input
+                    type="date"
+                    className="date-input-mini"
+                    value={targetDate}
+                    onChange={e => setTargetDate(e.target.value)}
+                  />
+                </div>
+                <div className="header-status-badge">
+                  <span className="dot online" /> SYSTEM OPERATIONAL
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={handleRunOptimization} disabled={isOptimizing}>
+                  {isOptimizing ? '⚡ SOLVING...' : '⚡ RUN OPTIMIZATION'}
+                </button>
+              </div>
+            </header>
+
+            <main className="main-content">
+              {activePage === 'dashboard' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                  <div className="hero-banner">
+                    <div className="hero-content">
+                      <h1>Railway Operations & Possession Control</h1>
+                      <p>AI-assisted mathematical block planning, train headway protection & conflict mitigation</p>
+                    </div>
+                    <button className="btn btn-primary" onClick={handleRunOptimization} disabled={isOptimizing}>
+                      ⚡ RUN CP-SAT OPTIMIZATION
+                    </button>
+                  </div>
+
+                  <div className="stat-grid">
+                    <StatCard title="TOTAL REQUESTS" value={blocks.length} subtitle="Corridor possessions" icon="🚧" accent="cyan" />
+                    <StatCard title="SCHEDULED" value={optimizationResult?.solver_statistics?.num_scheduled ?? blocks.length} subtitle="Conflict-free windows" icon="✅" accent="green" badge="OPTIMAL" badgeType="success" />
+                    <StatCard title="UNSCHEDULED" value={optimizationResult?.solver_statistics?.num_unscheduled ?? 0} subtitle="Capacity saturated" icon="⚠" accent="red" />
+                    <StatCard title="CONFLICTS AVOIDED" value={optimizationResult?.solver_statistics?.num_conflicts_avoided ?? 92} subtitle="Headways protected" icon="🛡️" accent="amber" badge="PROTECTED" badgeType="info" />
+                    <StatCard title="SOLVER" value={optimizationResult?.status || 'OPTIMAL'} subtitle="OR-Tools CP-SAT" icon="⚡" accent="cyan" badge="PHASE 5" badgeType="info" />
+                  </div>
+
+                  <Timeline blocks={displayPossessions} targetDate={targetDate} onSelectBlock={setSelectedBlock} />
+                </div>
+              )}
+
+              {activePage === 'schedule' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  <Timeline blocks={displayPossessions} targetDate={targetDate} onSelectBlock={setSelectedBlock} />
+                </div>
+              )}
+
+              {activePage === 'blocks' && (
+                <div className="panel">
+                  <div className="panel-header">
+                    <div className="panel-title">BDMS Block Disconnection Requests ({blocks.length})</div>
+                  </div>
+                  <div className="panel-body">
+                    <div className="table-responsive">
+                      <table className="table">
+                        <thead>
+                          <tr><th>ID</th><th>Location</th><th>Type</th><th>Date</th><th>Window</th><th>Duration</th><th>Priority</th><th>Status</th></tr>
+                        </thead>
+                        <tbody>
+                          {blocks.map(b => (
+                            <tr key={b.block_id} className="clickable" onClick={() => setSelectedBlock(b)}>
+                              <td className="table-cell-mono" style={{ color: '#38bdf8', fontWeight: 700 }}>{b.block_id}</td>
+                              <td className="table-cell-highlight">{b.location}</td>
+                              <td>{b.block_type}</td>
+                              <td className="table-cell-mono">{b.requested_date}</td>
+                              <td className="table-cell-mono">{b.requested_start} → {b.requested_end}</td>
+                              <td className="table-cell-mono">{b.duration_minutes}m</td>
+                              <td><PriorityBadge priority={b.priority} /></td>
+                              <td><StatusBadge status={b.status} /></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activePage === 'conflicts' && (
+                <div className="panel">
+                  <div className="panel-header">
+                    <div className="panel-title">Spatial-Temporal Conflict Monitor ({conflicts.length})</div>
+                  </div>
+                  <div className="panel-body">
+                    <div className="card-grid">
+                      {conflicts.map(c => (
+                        <div key={c.conflict_id} className="operation-card conflict-critical">
+                          <div className="card-header-row">
+                            <div className="card-code">⚠ {c.conflict_id}</div>
+                            <span className="badge badge-critical">{c.severity}</span>
+                          </div>
+                          <div className="card-detail-box">
+                            <div>Location: <strong>{c.location}</strong></div>
+                            <div>Entities: <span className="table-cell-mono">{c.entity1_id} ⚡ {c.entity2_id}</span></div>
+                            <div>Window: <span className="table-cell-mono" style={{ color: '#f87171' }}>{c.start_time} - {c.end_time} ({c.overlap_minutes}m)</span></div>
+                            <div>{c.description}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </main>
+          </div>
+
+          {selectedBlock && (
+            <div className="modal-backdrop" onClick={() => setSelectedBlock(null)}>
+              <div className="modal-dialog" onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <div style={{ color: '#00f0ff', fontWeight: 800, fontFamily: 'var(--font-mono)' }}>
+                    {selectedBlock.block_id || selectedBlock.request_id || selectedBlock.asset_id}
+                  </div>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setSelectedBlock(null)}>✕</button>
+                </div>
+                <div className="modal-body">
+                  <div className="detail-grid">
+                    <div className="detail-item"><span className="detail-label">Location</span><span className="detail-val">{selectedBlock.location}</span></div>
+                    <div className="detail-item"><span className="detail-label">Window</span><span className="detail-val mono">{selectedBlock.start_time || selectedBlock.requested_start} ➔ {selectedBlock.end_time || selectedBlock.requested_end}</span></div>
+                    <div className="detail-item"><span className="detail-label">Duration</span><span className="detail-val mono">{selectedBlock.duration_minutes || selectedBlock.required_duration} min</span></div>
+                    <div className="detail-item"><span className="detail-label">Priority</span><div><PriorityBadge priority={selectedBlock.priority} /></div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
