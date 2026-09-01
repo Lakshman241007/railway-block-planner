@@ -1,0 +1,58 @@
+[
+  {
+    "train_id": "G001",
+    "last_known_location": "ST03",
+    "location_type": "STATION",
+    "last_seen_time": "2026-09-01T13:20:00",
+    "data_age_minutes": 10
+  },
+  {
+    "train_id": "G002",
+    "last_known_location": "ST01",
+    "location_type": "STATION",
+    "last_seen_time": "2026-09-01T13:05:00",
+    "data_age_minutes": 25
+  },
+  {
+    "train_id": "G003",
+    "last_known_location": "ST06",
+    "location_type": "STATION",
+    "last_seen_time": "2026-09-01T13:15:00",
+    "data_age_minutes": 15
+  },
+  {
+    "train_id": "G004",
+    "last_known_location": "ST02",
+    "location_type": "STATION",
+    "last_seen_time": "2026-09-01T13:18:00",
+    "data_age_minutes": 12
+  },
+  {
+    "train_id": "G005",
+    "last_known_location": "ST07",
+    "location_type": "STATION",
+    "last_seen_time": "2026-09-01T10:30:00",
+    "data_age_minutes": 180
+  },
+  {
+    "train_id": "G006",
+    "last_known_location": "ST04",
+    "location_type": "STATION",
+    "last_seen_time": "2026-09-01T13:27:00",
+    "data_age_minutes": 3
+  },
+  {
+    "train_id": "G007",
+    "last_known_location": "ST02",
+    "location_type": "STATION",
+    "last_seen_time": "2026-09-01T13:10:00",
+    "data_age_minutes": 20
+  },
+  {
+    "train_id": "G008",
+    "last_known_location": "ST02",
+    "location_type": "STATION",
+    "last_seen_time": "2026-09-01T12:00:00",
+    "data_age_minutes": 90
+  }
+]

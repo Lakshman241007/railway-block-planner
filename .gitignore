@@ -1,32 +1,23 @@
-@"
+.vs/
+
 # Python
 __pycache__/
 *.py[cod]
 *.pyo
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Environment
 .env
-
-# Local databases
-*.db
-*.sqlite
-*.sqlite3
-
-# Virtual environments
-.venv/
-venv/
-env/
+*.env
 
 # IDE
 .vscode/
 .idea/
+*.slnx
+*.pyproj         
+.vs/
 
 # OS
 .DS_Store
 Thumbs.db
-"@ | Set-Content .gitignore
+
+# Secrets — RULE-06.4: never commit credentials
+secrets.json
+config_local.py. v s /

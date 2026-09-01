@@ -1,0 +1,10 @@
+[
+  {
+    "block_id": "BLK001",
+    "route_id": "R01",
+    "start_station": "ST04",
+    "end_station": "ST05",
+    "block_start": "2026-09-01T14:00:00",
+    "block_end": "2026-09-01T16:00:00"
+  }
+]

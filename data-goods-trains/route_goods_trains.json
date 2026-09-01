@@ -1,0 +1,58 @@
+[
+  {
+    "train_id": "G001",
+    "route_id": "R01",
+    "train_type": "GOODS",
+    "direction": "UP",
+    "status": "RUNNING"
+  },
+  {
+    "train_id": "G002",
+    "route_id": "R01",
+    "train_type": "GOODS",
+    "direction": "UP",
+    "status": "RUNNING"
+  },
+  {
+    "train_id": "G003",
+    "route_id": "R01",
+    "train_type": "GOODS",
+    "direction": "DOWN",
+    "status": "RUNNING"
+  },
+  {
+    "train_id": "G004",
+    "route_id": "R02",
+    "train_type": "GOODS",
+    "direction": "UP",
+    "status": "RUNNING"
+  },
+  {
+    "train_id": "G005",
+    "route_id": "R01",
+    "train_type": "GOODS",
+    "direction": "UP",
+    "status": "COMPLETED"
+  },
+  {
+    "train_id": "G006",
+    "route_id": "R01",
+    "train_type": "GOODS",
+    "direction": "UP",
+    "status": "RUNNING"
+  },
+  {
+    "train_id": "G007",
+    "route_id": "R01",
+    "train_type": "GOODS",
+    "direction": "UP",
+    "status": "CANCELLED"
+  },
+  {
+    "train_id": "G008",
+    "route_id": "R01",
+    "train_type": "GOODS",
+    "direction": "UP",
+    "status": "RUNNING"
+  }
+]
