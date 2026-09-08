@@ -181,11 +181,13 @@ def seed_database(
 
 def main() -> None:
     """CLI entrypoint for database seeding."""
-    import sys
+    # Reconfigure stdout to UTF-8 on Windows terminals that support it; safely
+    # ignore if running in a redirected pipe or legacy environment where reconfigure is unsupported.
     if hasattr(sys.stdout, "reconfigure"):
         try:
             sys.stdout.reconfigure(encoding="utf-8")
-        except Exception:
+        except (AttributeError, ValueError, OSError):
+            # Stream does not support encoding reconfiguration (e.g. non-standard pipe)
             pass
 
     parser = argparse.ArgumentParser(

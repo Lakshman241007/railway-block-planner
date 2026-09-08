@@ -106,6 +106,10 @@ class ConflictItem(BaseModel):
     entity2_id: str = Field(..., description="Identifier of second entity")
     description: str = Field(..., description="Human-readable description of conflict")
     suggested_action: Optional[str] = Field(default=None, description="Rule-based resolution recommendation")
+    entity1_priority: Optional[str] = Field(default=None, description="Priority of first entity")
+    entity2_priority: Optional[str] = Field(default=None, description="Priority of second entity")
+    precedence_entity_id: Optional[str] = Field(default=None, description="Entity designated operational precedence")
+    resolution_strategy: Optional[str] = Field(default=None, description="Recommended resolution strategy category")
 
     model_config = {"str_strip_whitespace": True}
 

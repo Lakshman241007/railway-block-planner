@@ -143,6 +143,7 @@ function StatusField({ isEditing, isBlock, block, editDraft, onDraftChange }) {
   const blockStatuses = ['Requested', 'Approved', 'Rejected', 'Completed', 'Cancelled'];
   const maintenanceStatuses = ['Pending', 'Approved', 'Completed', 'Cancelled'];
   const options = isBlock ? blockStatuses : maintenanceStatuses;
+  const currentStatus = options.includes(editDraft.status) ? editDraft.status : options[0];
 
   return (
     <div className="detail-item">
@@ -150,7 +151,7 @@ function StatusField({ isEditing, isBlock, block, editDraft, onDraftChange }) {
       <select
         id="edit-status"
         className="edit-field"
-        value={editDraft.status}
+        value={currentStatus}
         onChange={(e) => onDraftChange('status', e.target.value)}
       >
         {options.map((opt) => (
@@ -346,13 +347,14 @@ function ModalFooter({ isEditing, isSaving, saveError, onCancel, onSave, onClose
 // ---------------------------------------------------------------------------
 
 async function saveRecord(block, editDraft, isBlock, isMaintenance) {
+  const saveStatus = editDraft.status === 'Scheduled' ? 'Approved' : editDraft.status;
   if (isBlock) {
     const blockId = block.block_request_id || block.block_id;
     await updateBlock(blockId, {
       requested_start: editDraft.requested_start || undefined,
       requested_end: editDraft.requested_end || undefined,
       priority: editDraft.priority || undefined,
-      status: editDraft.status || undefined,
+      status: saveStatus || undefined,
       reason: editDraft.reason || undefined,
     });
   } else if (isMaintenance) {
@@ -364,17 +366,27 @@ async function saveRecord(block, editDraft, isBlock, isMaintenance) {
       preferred_start: editDraft.preferred_start || undefined,
       duration_minutes: Number.isFinite(parsedDuration) ? parsedDuration : undefined,
       priority: editDraft.priority || undefined,
-      status: editDraft.status || undefined,
+      status: saveStatus || undefined,
     });
   }
 }
 
 function createInitialDraft(block) {
+  const isMaintenanceRecord = Boolean(block.asset_id && !block.block_request_id);
+  const blockStatuses = ['Requested', 'Approved', 'Rejected', 'Completed', 'Cancelled'];
+  const maintenanceStatuses = ['Pending', 'Approved', 'Completed', 'Cancelled'];
+  const validStatuses = isMaintenanceRecord ? maintenanceStatuses : blockStatuses;
+
+  let initialStatus = block.status || (isMaintenanceRecord ? 'Pending' : 'Requested');
+  if (!validStatuses.includes(initialStatus)) {
+    initialStatus = 'Approved';
+  }
+
   return {
     requested_start: block.requested_start || block.start_time || '',
     requested_end: block.requested_end || block.end_time || '',
     priority: block.priority || 'Medium',
-    status: block.status || 'Requested',
+    status: initialStatus,
     reason: block.reason || '',
     preferred_start: block.preferred_start || '',
     duration_minutes: block.duration_minutes != null ? String(block.duration_minutes) : '',
@@ -411,7 +423,7 @@ function useBlockDetailDraft(block, onSave, onClose) {
     setSaveError(null);
     try {
       await saveRecord(block, editDraft, isBlock, isMaintenance);
-      if (onSave) onSave();
+      if (onSave) onSave(block, editDraft);
       onClose();
     } catch (err) {
       setSaveError(err.message || 'Save failed. Please try again.');

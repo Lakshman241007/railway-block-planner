@@ -47,6 +47,11 @@ class AutoResolver:
     @staticmethod
     def resolve_block_block_conflict(conflict: ConflictItem) -> Dict[str, str]:
         """Generate resolution recommendation for simultaneous track blocks."""
+        if conflict.resolution_strategy and conflict.suggested_action:
+            return {
+                "strategy": conflict.resolution_strategy,
+                "recommendation": conflict.suggested_action,
+            }
         return {
             "strategy": "Sequential Staggering",
             "recommendation": (
@@ -58,6 +63,11 @@ class AutoResolver:
     @staticmethod
     def resolve_resource_contention(conflict: ConflictItem) -> Dict[str, str]:
         """Generate resolution recommendation for machinery contention."""
+        if conflict.resolution_strategy and conflict.suggested_action:
+            return {
+                "strategy": conflict.resolution_strategy,
+                "recommendation": conflict.suggested_action,
+            }
         return {
             "strategy": "Equipment Time-Sharing",
             "recommendation": (
