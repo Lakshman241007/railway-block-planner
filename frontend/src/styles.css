@@ -1296,6 +1296,31 @@ body {
   color: var(--accent-bright);
 }
 
+/* Edit-mode form controls inside BlockDetailModal */
+.edit-field {
+  background: var(--bg-input);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-family: var(--font-sans);
+  outline: none;
+  width: 100%;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.edit-field:focus {
+  border-color: var(--cyan-primary);
+  box-shadow: 0 0 6px rgba(0, 240, 255, 0.2);
+}
+
+.edit-field option {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+}
+
+
 /* ==========================================================================
    OPTIMIZATION STEPPER & TOASTS
    ========================================================================== */

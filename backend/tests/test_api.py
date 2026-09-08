@@ -59,12 +59,15 @@ def test_health_endpoint(test_client):
 
 
 def test_root_endpoint(test_client):
-    """Test / root endpoint returns metadata."""
+    """Test / root endpoint returns metadata or serves frontend SPA."""
     response = test_client.get("/")
     assert response.status_code == 200
-    data = response.json()
-    assert data["name"] == "Railway Block Planner API"
-    assert data["docs"] == "/docs"
+    if "text/html" in response.headers.get("content-type", ""):
+        assert "<!DOCTYPE html>" in response.text
+    else:
+        data = response.json()
+        assert data["name"] == "Railway Block Planner API"
+        assert data["docs"] == "/docs"
 
 
 def test_get_trains_endpoint(test_client):
@@ -318,5 +321,149 @@ def test_get_movements_by_section(test_client):
     payload = response.json()
     assert "data" in payload
     assert payload["count"] > 0
+
+
+# ===========================================================================
+# Feature 1 — PATCH endpoint tests: Manual Schedule Editing
+# ===========================================================================
+
+def test_patch_block_updates_fields(test_client):
+    """PATCH /api/blocks/{block_id} — partial update persists new values."""
+    # Fetch a real block_id from the seeded database.
+    list_resp = test_client.get("/api/blocks")
+    first_block = list_resp.json()["data"][0]
+    block_id = first_block["block_id"]
+
+    # Patch only priority and status; other fields must remain unchanged.
+    patch_resp = test_client.patch(
+        f"/api/blocks/{block_id}",
+        json={"priority": "High", "status": "Approved"},
+    )
+    assert patch_resp.status_code == 200
+    updated = patch_resp.json()["data"]
+    assert updated["block_id"] == block_id
+    assert updated["priority"] == "High"
+    assert updated["status"] == "Approved"
+    # Structural fields must not have been touched.
+    assert updated["location"] == first_block["location"]
+    assert updated["block_type"] == first_block["block_type"]
+
+
+def test_patch_block_empty_body_returns_current_record(test_client):
+    """PATCH /api/blocks/{block_id} with empty body returns the unchanged record."""
+    list_resp = test_client.get("/api/blocks")
+    first_block = list_resp.json()["data"][0]
+    block_id = first_block["block_id"]
+
+    patch_resp = test_client.patch(f"/api/blocks/{block_id}", json={})
+    assert patch_resp.status_code == 200
+    # The returned record must be identical to what was there before.
+    returned = patch_resp.json()["data"]
+    assert returned["block_id"] == block_id
+
+
+def test_patch_block_404(test_client):
+    """PATCH /api/blocks/{block_id} returns 404 for an unknown block_id."""
+    response = test_client.patch(
+        "/api/blocks/NONEXISTENT_BLOCK_XYZ",
+        json={"priority": "High"},
+    )
+    assert response.status_code == 404
+    assert "detail" in response.json()
+
+
+def test_patch_block_invalid_priority_422(test_client):
+    """PATCH /api/blocks/{block_id} returns 422 for an unrecognised priority value."""
+    list_resp = test_client.get("/api/blocks")
+    block_id = list_resp.json()["data"][0]["block_id"]
+
+    response = test_client.patch(
+        f"/api/blocks/{block_id}",
+        json={"priority": "SuperUrgent"},
+    )
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
+
+def test_patch_block_invalid_status_422(test_client):
+    """PATCH /api/blocks/{block_id} returns 422 for an unrecognised status value."""
+    list_resp = test_client.get("/api/blocks")
+    block_id = list_resp.json()["data"][0]["block_id"]
+
+    response = test_client.patch(
+        f"/api/blocks/{block_id}",
+        json={"status": "Pending"},  # Valid for maintenance, not for blocks.
+    )
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
+
+def test_patch_maintenance_updates_fields(test_client):
+    """PATCH /api/maintenance/{id} — partial update persists new values."""
+    # Fetch a real integer id from the seeded database.
+    list_resp = test_client.get("/api/maintenance")
+    first_record = list_resp.json()["data"][0]
+    record_id = first_record["id"]
+
+    patch_resp = test_client.patch(
+        f"/api/maintenance/{record_id}",
+        json={"status": "Approved", "duration_minutes": 90},
+    )
+    assert patch_resp.status_code == 200
+    updated = patch_resp.json()["data"]
+    assert updated["id"] == record_id
+    assert updated["status"] == "Approved"
+    assert updated["duration_minutes"] == 90
+    # Structural fields must not have been touched.
+    assert updated["asset_id"] == first_record["asset_id"]
+
+
+def test_patch_maintenance_empty_body_returns_current_record(test_client):
+    """PATCH /api/maintenance/{id} with empty body returns the unchanged record."""
+    list_resp = test_client.get("/api/maintenance")
+    first_record = list_resp.json()["data"][0]
+    record_id = first_record["id"]
+
+    patch_resp = test_client.patch(f"/api/maintenance/{record_id}", json={})
+    assert patch_resp.status_code == 200
+    returned = patch_resp.json()["data"]
+    assert returned["id"] == record_id
+
+
+def test_patch_maintenance_404(test_client):
+    """PATCH /api/maintenance/{id} returns 404 for an unknown integer id."""
+    response = test_client.patch(
+        "/api/maintenance/999999",
+        json={"status": "Approved"},
+    )
+    assert response.status_code == 404
+    assert "detail" in response.json()
+
+
+def test_patch_maintenance_invalid_duration_422(test_client):
+    """PATCH /api/maintenance/{id} returns 422 when duration_minutes <= 0."""
+    list_resp = test_client.get("/api/maintenance")
+    record_id = list_resp.json()["data"][0]["id"]
+
+    response = test_client.patch(
+        f"/api/maintenance/{record_id}",
+        json={"duration_minutes": 0},
+    )
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
+
+def test_patch_maintenance_invalid_status_422(test_client):
+    """PATCH /api/maintenance/{id} returns 422 for an unrecognised status."""
+    list_resp = test_client.get("/api/maintenance")
+    record_id = list_resp.json()["data"][0]["id"]
+
+    response = test_client.patch(
+        f"/api/maintenance/{record_id}",
+        json={"status": "Rejected"},  # Valid for blocks, not for maintenance.
+    )
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
 
 

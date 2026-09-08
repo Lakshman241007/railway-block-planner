@@ -37,7 +37,19 @@ export async function apiFetch(endpoint, options = {}) {
       } catch {
         errorJson = { detail: errorText || response.statusText };
       }
-      const error = new Error(errorJson.detail || `HTTP Error ${response.status}`);
+      let message = `HTTP Error ${response.status}`;
+      if (typeof errorJson.detail === 'string') {
+        message = errorJson.detail;
+      } else if (Array.isArray(errorJson.detail)) {
+        message = errorJson.detail
+          .map((d) => (d && typeof d === 'object' ? d.msg || d.message || JSON.stringify(d) : String(d)))
+          .join('; ');
+      } else if (errorJson.detail && typeof errorJson.detail === 'object') {
+        message = errorJson.detail.message || errorJson.detail.msg || JSON.stringify(errorJson.detail);
+      } else if (errorJson.message) {
+        message = errorJson.message;
+      }
+      const error = new Error(message);
       error.status = response.status;
       error.data = errorJson;
       throw error;

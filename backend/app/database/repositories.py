@@ -143,6 +143,16 @@ class MaintenanceRepository:
             .all()
         )
 
+    def get_by_identifier(self, identifier: Union[int, str]) -> Optional[Maintenance]:
+        """
+        Fetch maintenance record by integer ID or string asset_id.
+        Allows seamless updates from both raw maintenance tables and optimizer views.
+        """
+        if isinstance(identifier, int) or (isinstance(identifier, str) and identifier.isdigit()):
+            return self.get_by_id(int(identifier))
+        records = self.get_by_asset_id(str(identifier))
+        return records[0] if records else None
+
     def get_all(
         self,
         priority: Optional[str] = None,

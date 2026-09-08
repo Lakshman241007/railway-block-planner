@@ -9,11 +9,15 @@ optimization, and conflict detection.
 from __future__ import annotations
 
 import os
+import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -22,30 +26,28 @@ from backend.app.api.routes import blocks, forecast, maintenance, movements, pla
 from backend.app.database.connection import SessionLocal, init_db
 from backend.app.database.seed import seed_database
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan context manager: initializes database and seeds if empty on startup."""
+    """Application lifespan context manager: initializes database and seeds data on startup."""
     init_db()
-
-    # Auto-seed: if the database has no operational records, run the full integration pipeline
     try:
-        db = SessionLocal()
-        from sqlalchemy import func
-        from backend.app.database.models import Train, Block
-        train_count = db.query(func.count(Train.train_id)).scalar() or 0
-        block_count = db.query(func.count(Block.block_id)).scalar() or 0
-        db.close()
-        if train_count == 0 or block_count == 0:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info("Database is empty or missing operational records — running auto-seed from mock data ...")
-            seed_database()
-            logger.info("Auto-seed complete.")
+        stats = seed_database()
+        if isinstance(stats, dict) and "inserted_trains" in stats:
+            logger.info(
+                "Seed complete — trains=%d, maintenance=%d, movements=%d, blocks=%d, timetable=%d",
+                stats.get("inserted_trains", 0),
+                stats.get("inserted_maintenance", 0),
+                stats.get("inserted_movements", 0),
+                stats.get("inserted_blocks", 0),
+                stats.get("inserted_timetable", 0),
+            )
+        else:
+            logger.info("Database initialized.")
     except Exception as exc:
-        import logging
-        logging.getLogger(__name__).warning("Auto-seed check failed: %s", exc)
-
+        logger.warning("Seed failed (database may already contain data or be unavailable): %s", exc)
     yield
 
 
@@ -100,13 +102,6 @@ def health_check() -> Dict[str, Any]:
         "phase": "Phase 6 - Final System Hardening & Acceptance Validation",
     }
 
-
-import logging
-from pathlib import Path
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
-
-logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Route Registrations
