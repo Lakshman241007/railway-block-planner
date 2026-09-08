@@ -16,8 +16,10 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
+    Float,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -275,3 +277,50 @@ class Timetable(Base):
 
     def __repr__(self) -> str:
         return f"<Timetable(train_id={self.train_id!r}, station={self.station_code!r}, seq={self.sequence})>"
+
+
+class OptimizedPlan(Base):
+    """
+    Persistent model representing a CP-SAT optimization run result (Phase 5).
+
+    Stores the full OptimizationResult as JSON alongside key summary metadata
+    so that plans can be retrieved by ID, by target date, or as the latest
+    plan for a given date without re-running the solver.
+    """
+
+    __tablename__ = "optimized_plans"
+
+    plan_id = Column(String(50), primary_key=True, index=True, nullable=False)
+    target_date = Column(Date, index=True, nullable=False)
+    horizon_days = Column(Integer, nullable=False, default=7)
+    solver_status = Column(String(30), nullable=False)
+    objective_value = Column(Float, nullable=True)
+    num_scheduled = Column(Integer, nullable=False, default=0)
+    num_unscheduled = Column(Integer, nullable=False, default=0)
+    total_requests = Column(Integer, nullable=False, default=0)
+    conflicts_before = Column(Integer, nullable=True)
+    conflicts_after = Column(Integer, nullable=True)
+    wall_time_seconds = Column(Float, nullable=True)
+    result_json = Column(Text, nullable=False)  # Full OptimizationResult as JSON
+    generated_at = Column(DateTime, nullable=False, default=datetime.now, server_default=func.now())
+    created_at = Column(DateTime, default=datetime.now, server_default=func.now())
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert ORM model to summary dictionary (without full JSON payload)."""
+        return {
+            "plan_id": self.plan_id,
+            "target_date": self.target_date.isoformat() if isinstance(self.target_date, (date, datetime)) else str(self.target_date),
+            "horizon_days": self.horizon_days,
+            "solver_status": self.solver_status,
+            "objective_value": self.objective_value,
+            "num_scheduled": self.num_scheduled,
+            "num_unscheduled": self.num_unscheduled,
+            "total_requests": self.total_requests,
+            "conflicts_before": self.conflicts_before,
+            "conflicts_after": self.conflicts_after,
+            "wall_time_seconds": self.wall_time_seconds,
+            "generated_at": self.generated_at.isoformat() if self.generated_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"<OptimizedPlan(plan_id={self.plan_id!r}, target_date={self.target_date!r}, status={self.solver_status!r})>"

@@ -4,8 +4,6 @@
  *              maintenance records. Supports inline editing of schedule fields
  *              (time windows, duration, priority, status, reason) with PATCH
  *              writes via the blocks / maintenance service layer.
- * @author       Railway Block Planner Team
- * @lastModified 2026-09-07
  * @dependencies components/PriorityBadge, components/StatusBadge,
  *               services/blocks → updateBlock,
  *               services/maintenance → updateMaintenance
@@ -18,7 +16,7 @@ import { updateBlock } from '../services/blocks';
 import { updateMaintenance } from '../services/maintenance';
 
 // ---------------------------------------------------------------------------
-// Field Sub-components (RULE-01.1: each function <= 60 lines)
+// Field Sub-components
 // ---------------------------------------------------------------------------
 
 function TimeFields({ isEditing, isBlock, block, editDraft, onDraftChange }) {
@@ -27,7 +25,7 @@ function TimeFields({ isEditing, isBlock, block, editDraft, onDraftChange }) {
       <div className="detail-item">
         <span className="detail-label">Operational Window</span>
         <span className="detail-val mono" style={{ color: '#34d399' }}>
-          {block.start_time || block.requested_start || '--'} ➔{' '}
+          {block.start_time || block.requested_start || '--'} →{' '}
           {block.end_time || block.requested_end || '--'}
         </span>
       </div>
@@ -42,7 +40,7 @@ function TimeFields({ isEditing, isBlock, block, editDraft, onDraftChange }) {
           <input
             id="edit-requested-start"
             type="time"
-            className="edit-field"
+            className="select-control"
             value={editDraft.requested_start}
             onChange={(e) => onDraftChange('requested_start', e.target.value)}
           />
@@ -52,7 +50,7 @@ function TimeFields({ isEditing, isBlock, block, editDraft, onDraftChange }) {
           <input
             id="edit-requested-end"
             type="time"
-            className="edit-field"
+            className="select-control"
             value={editDraft.requested_end}
             onChange={(e) => onDraftChange('requested_end', e.target.value)}
           />
@@ -67,7 +65,7 @@ function TimeFields({ isEditing, isBlock, block, editDraft, onDraftChange }) {
       <input
         id="edit-preferred-start"
         type="time"
-        className="edit-field"
+        className="select-control"
         value={editDraft.preferred_start}
         onChange={(e) => onDraftChange('preferred_start', e.target.value)}
       />
@@ -94,7 +92,8 @@ function DurationField({ isEditing, isMaintenance, block, editDraft, onDraftChan
         id="edit-duration-minutes"
         type="number"
         min="1"
-        className="edit-field"
+        className="search-input"
+        style={{ minWidth: '100%' }}
         value={editDraft.duration_minutes}
         onChange={(e) => onDraftChange('duration_minutes', e.target.value)}
       />
@@ -117,7 +116,7 @@ function PriorityField({ isEditing, block, editDraft, onDraftChange }) {
       <span className="detail-label">Priority Tier</span>
       <select
         id="edit-priority"
-        className="edit-field"
+        className="select-control"
         value={editDraft.priority}
         onChange={(e) => onDraftChange('priority', e.target.value)}
       >
@@ -150,7 +149,7 @@ function StatusField({ isEditing, isBlock, block, editDraft, onDraftChange }) {
       <span className="detail-label">Status</span>
       <select
         id="edit-status"
-        className="edit-field"
+        className="select-control"
         value={currentStatus}
         onChange={(e) => onDraftChange('status', e.target.value)}
       >
@@ -171,9 +170,9 @@ function ReasonField({ isEditing, isBlock, block, editDraft, onDraftChange }) {
 
   if (!isEditing || !isBlock) {
     return (
-      <div className="card-detail-box" style={{ background: '#0a0e17' }}>
+      <div className="card-detail-box">
         <span className="detail-label">Operational Justification / Description</span>
-        <span style={{ color: '#e2e8f0', fontSize: '0.8rem', lineHeight: 1.4 }}>
+        <span style={{ color: '#e2e8f0', fontSize: '0.78rem', lineHeight: 1.4 }}>
           {displayText}
         </span>
       </div>
@@ -181,15 +180,15 @@ function ReasonField({ isEditing, isBlock, block, editDraft, onDraftChange }) {
   }
 
   return (
-    <div className="card-detail-box" style={{ background: '#0a0e17' }}>
+    <div className="card-detail-box">
       <span className="detail-label">Operational Justification / Description</span>
       <textarea
         id="edit-reason"
-        className="edit-field"
+        className="search-input"
         rows={3}
         value={editDraft.reason}
         onChange={(e) => onDraftChange('reason', e.target.value)}
-        style={{ resize: 'vertical', minHeight: '72px' }}
+        style={{ resize: 'vertical', minHeight: '68px', width: '100%', height: 'auto', padding: '6px 10px' }}
       />
     </div>
   );
@@ -203,10 +202,10 @@ function ModalHeader({ displayId, isOvernight, isEditing, isSaving, onStartEdit,
   return (
     <div className="modal-header">
       <div>
-        <div style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        <div style={{ fontSize: '0.68rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>
           Operational Detail Inspector
         </div>
-        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#00f0ff', fontFamily: 'var(--font-mono)' }}>
+        <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#38bdf8', fontFamily: 'var(--font-mono)' }}>
           {displayId} {isOvernight ? '🌙 (Overnight Block)' : ''}
         </div>
       </div>
@@ -225,8 +224,7 @@ function ModalHeader({ displayId, isOvernight, isEditing, isSaving, onStartEdit,
         <button
           className="btn btn-secondary btn-icon-only btn-sm"
           onClick={onClose}
-          style={{ borderRadius: '50%' }}
-          title="Close modal"
+          title="Close inspector"
         >
           ✕
         </button>
@@ -241,7 +239,7 @@ function ModalBody({ block, sharedProps }) {
       <div className="detail-grid">
         <div className="detail-item">
           <span className="detail-label">Location / Section</span>
-          <span className="detail-val" style={{ fontWeight: 700 }}>
+          <span className="detail-val" style={{ fontWeight: 600 }}>
             {block.location || 'Chennai-Arakkonam'}
           </span>
         </div>
@@ -276,7 +274,7 @@ function ModalBody({ block, sharedProps }) {
       {block.reason && block.reason.toLowerCase().includes('preempt') && (
         <div
           className="card-resolution-box"
-          style={{ background: 'rgba(239, 68, 68, 0.1)', borderColor: '#ef4444' }}
+          style={{ background: 'rgba(239, 68, 68, 0.08)', borderColor: 'rgba(239, 68, 68, 0.35)' }}
         >
           <strong style={{ color: '#f87171' }}>CP-SAT Solver Diagnostic:</strong>
           <div style={{ color: '#fca5a5', marginTop: 4 }}>
@@ -291,24 +289,24 @@ function ModalBody({ block, sharedProps }) {
 
 function ModalFooter({ isEditing, isSaving, saveError, onCancel, onSave, onClose }) {
   return (
-    <div className="modal-footer" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
+    <div className="modal-footer" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '8px' }}>
       {saveError && (
         <div
           id="modal-save-error"
           style={{
-            background: 'rgba(239, 68, 68, 0.12)',
-            border: '1px solid rgba(239, 68, 68, 0.4)',
+            background: 'rgba(239, 68, 68, 0.10)',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
             borderRadius: '4px',
-            padding: '8px 12px',
+            padding: '6px 10px',
             color: '#fca5a5',
-            fontSize: '0.78rem',
+            fontSize: '0.75rem',
           }}
         >
           ⚠ {saveError}
         </div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
         {isEditing ? (
           <>
             <button
@@ -317,7 +315,7 @@ function ModalFooter({ isEditing, isSaving, saveError, onCancel, onSave, onClose
               onClick={onCancel}
               disabled={isSaving}
             >
-              ✕ Cancel
+              Cancel
             </button>
             <button
               id="modal-save-btn"
@@ -343,7 +341,7 @@ function ModalFooter({ isEditing, isSaving, saveError, onCancel, onSave, onClose
 }
 
 // ---------------------------------------------------------------------------
-// Business Logic Helpers (RULE-01.1: <= 60 lines each)
+// Business Logic Helpers
 // ---------------------------------------------------------------------------
 
 async function saveRecord(block, editDraft, isBlock, isMaintenance) {
@@ -449,7 +447,7 @@ function useBlockDetailDraft(block, onSave, onClose) {
 }
 
 // ---------------------------------------------------------------------------
-// Main Component (RULE-01.1: <= 60 lines)
+// Main Component
 // ---------------------------------------------------------------------------
 
 export default function BlockDetailModal({ block, onClose, onSave }) {

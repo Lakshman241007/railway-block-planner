@@ -218,18 +218,47 @@ The optimizer supports configurable planning windows with a unified mathematical
 
 ---
 
-## Running & Testing
+## Phase 6 — System Hardening & Acceptance Validation (v0.6.0)
 
-### Run Tests
+Phase 6 provides end-to-end verification, data truthfulness audits, performance benchmarks, and a clean demo reset pipeline:
+- **Clean Database Reproducibility**: Automated initialization and idempotent seeding from project-root `data/`.
+- **Demo Reset Utility (`backend/scripts/reset_demo_db.py`)**: Safe single-command reset to canonical baseline dataset.
+- **End-to-End Acceptance Test (`backend/tests/test_phase6_acceptance.py`)**: 20 comprehensive stages from ingestion through optimization, conflict resolution, persistence, and timetable alignment.
+- **Protected Timeline Lane-Packing**: Retains the zero-collision horizontal interval packing algorithm in `Timeline.jsx`.
 
+---
+
+## Quickstart & Evaluation Guide
+
+### 1. Reset / Initialize Clean Demo State
 ```bash
-py -m pytest backend/tests/ -v
+py -3 backend/scripts/reset_demo_db.py
+```
+*Restores 12 trains, 12 maintenance records, 12 movements, 12 blocks, and 273 timetable stops.*
+
+### 2. Run Test Suite (252 Tests)
+```bash
+py -3 -m pytest backend/tests/ -v
 ```
 
-### Start API Server
-
+### 3. Start Backend API Server
 ```bash
-uvicorn backend.app.main:app --reload
+py -3 -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+*API docs available at `http://127.0.0.1:8000/docs`.*
+
+### 4. Start / Build Frontend
+```bash
+cd frontend
+npm run build     # Production bundle served directly by FastAPI (or npm.cmd on Windows)
+npm run dev       # Local Vite development server on port 5173
 ```
 
-Interactive API documentation available at `http://localhost:8000/docs`.
+### 5. Canonical Demo Scenario
+- Open `http://127.0.0.1:8000/` (or `http://localhost:5173/`).
+- **Default Operational Date**: `2026-09-07`.
+- **Pre-Optimization Conflicts**: 54 conflicts detected across the 7-day horizon (16 on canonical target date `2026-09-07`) against active train movements and freight forecasts.
+- Click **"Run CP-SAT Optimization"** on Dashboard or Optimization page.
+- Solver completes in < 150 ms with status `OPTIMAL`.
+- **Post-Optimization Conflicts**: Reduced to **0** on target date (and **0** across the full 7-day horizon; **54 conflicts avoided**).
+- Persisted plan automatically reloads across browser refreshes and renders in **Schedule (Timeline)** and **Block Requests**.

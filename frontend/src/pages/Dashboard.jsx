@@ -1,9 +1,11 @@
 import React from 'react';
+import PageContainer from '../components/PageContainer';
 import StatCard from '../components/StatCard';
 import Timeline from '../components/Timeline';
 import ConflictCard from '../components/ConflictCard';
 import ForecastCard from '../components/ForecastCard';
 import LoadingState from '../components/LoadingState';
+import ErrorState from '../components/ErrorState';
 
 export default function Dashboard({
   targetDate,
@@ -16,16 +18,27 @@ export default function Dashboard({
   trains = [],
   onSelectBlock,
   loading = false,
+  error = null,
+  onRetry,
 }) {
   const stats = optimizationResult?.solver_statistics;
   const scheduledCount = stats?.num_scheduled ?? blocks.filter((b) => b.status === 'Approved' || b.status === 'Scheduled').length;
   const unscheduledCount = stats?.num_unscheduled ?? 0;
-  const conflictsAvoided = stats?.num_conflicts_avoided ?? (conflicts.length > 0 ? conflicts.length : 12);
+  const conflictsAvoided = stats?.num_conflicts_avoided ?? 0;
   const totalRequests = blocks.length;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {/* Hero Banner */}
+    <PageContainer>
+      {/* Error Banner if telemetry failed */}
+      {error && (
+        <ErrorState
+          title="Telemetry Connection Warning"
+          message={error}
+          onRetry={onRetry}
+        />
+      )}
+
+      {/* Hero Overview */}
       <div className="hero-banner">
         <div className="hero-content">
           <h1>Railway Operations & Possession Control</h1>
@@ -58,7 +71,7 @@ export default function Dashboard({
           subtitle="Conflict-free assigned windows"
           icon="✅"
           accent="green"
-          badge="FEASIBLE"
+          badge={optimizationResult ? 'OPTIMIZED' : 'CURRENT'}
           badgeType="success"
         />
         <StatCard
@@ -67,7 +80,7 @@ export default function Dashboard({
           subtitle="Capacity saturated requests"
           icon="⚠"
           accent="red"
-          badge={unscheduledCount > 0 ? 'NEEDS REVIEW' : 'ALL SCHEDULED'}
+          badge={unscheduledCount > 0 ? 'NEEDS REVIEW' : 'NONE'}
           badgeType={unscheduledCount > 0 ? 'critical' : 'success'}
         />
         <StatCard
@@ -76,17 +89,17 @@ export default function Dashboard({
           subtitle="Train collisions prevented"
           icon="🛡️"
           accent="amber"
-          badge="PROTECTED"
+          badge={conflictsAvoided > 0 ? 'PROTECTED' : '—'}
           badgeType="info"
         />
         <StatCard
           title="SOLVER STATUS"
-          value={optimizationResult?.status || 'OPTIMAL'}
+          value={optimizationResult?.status || 'NOT RUN'}
           subtitle="Google OR-Tools CP-SAT"
           icon="⚡"
           accent="cyan"
-          badge="PHASE 5"
-          badgeType="info"
+          badge={optimizationResult?.status || 'IDLE'}
+          badgeType={optimizationResult?.status === 'OPTIMAL' ? 'success' : 'info'}
         />
       </div>
 
@@ -102,26 +115,28 @@ export default function Dashboard({
       )}
 
       {/* Two-Column Operational Summary: Active Conflicts & Goods Forecasts */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 16 }}>
         {/* Conflicts Alert Section */}
         <div className="panel">
           <div className="panel-header">
             <div>
               <div className="panel-title">
                 <span>⚠ Active Incident & Conflict Monitor</span>
-                <span className="badge badge-critical">{conflicts.length} DETECTED</span>
+                <span className={`badge ${conflicts.length > 0 ? 'badge-critical' : 'badge-low'}`}>
+                  {conflicts.length} DETECTED
+                </span>
               </div>
               <div className="panel-subtitle">Spatial-temporal headway violations requiring clearance</div>
             </div>
           </div>
 
-          <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 420, overflowY: 'auto' }}>
+          <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 420, overflowY: 'auto' }}>
             {conflicts.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '30px', color: '#10b981' }}>
+              <div style={{ textAlign: 'center', padding: '36px 20px', color: '#10b981', fontSize: '0.85rem' }}>
                 ✅ Zero conflicts detected on corridor sections for {targetDate}.
               </div>
             ) : (
-              conflicts.slice(0, 3).map((c, idx) => (
+              conflicts.slice(0, 5).map((c, idx) => (
                 <ConflictCard key={c.conflict_id || idx} conflict={c} />
               ))
             )}
@@ -136,23 +151,23 @@ export default function Dashboard({
                 <span>📈 Goods Train Movement Predictions</span>
                 <span className="badge badge-cyan">{forecasts.length} ACTIVE</span>
               </div>
-              <div className="panel-subtitle">COA / TDMS corridor entry window forecasts with ML confidence</div>
+              <div className="panel-subtitle">COA / TDMS corridor entry window forecasts with confidence scoring</div>
             </div>
           </div>
 
-          <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 420, overflowY: 'auto' }}>
+          <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 420, overflowY: 'auto' }}>
             {forecasts.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>
+              <div style={{ textAlign: 'center', padding: '36px 20px', color: '#94a3b8', fontSize: '0.85rem' }}>
                 No goods movement forecasts generated for {targetDate}.
               </div>
             ) : (
-              forecasts.slice(0, 3).map((fc, idx) => (
+              forecasts.slice(0, 5).map((fc, idx) => (
                 <ForecastCard key={fc.train_id + idx} forecast={fc} />
               ))
             )}
           </div>
         </div>
       </div>
-    </div>
+    </PageContainer>
   );
 }

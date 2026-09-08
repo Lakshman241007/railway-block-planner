@@ -226,12 +226,14 @@ class CP_SAT_Optimizer:
         goods_forecasts: Optional[List[GoodsForecastItem]] = None,
         movements: Optional[List[MovementRecord]] = None,
         config_path: Optional[Path] = None,
+        trains: Optional[List[TrainRecord]] = None,
     ) -> None:
         self.maintenance_records = maintenance_records or []
         self.block_records = block_records or []
         self.timetables = timetables or []
         self.goods_forecasts = goods_forecasts or []
         self.movements = movements or []
+        self.trains = trains or []
         self.config = load_constraints_config(config_path)
 
     def _collect_requests(
@@ -484,11 +486,13 @@ class CP_SAT_Optimizer:
         s_ids: List[str],
     ) -> UnscheduledBlock:
         """Create an UnscheduledBlock diagnostic item."""
-        reason = (
-            "No feasible conflict-free time window available within timetable / traffic headroom."
-            if not s_ids
-            else "Preempted by higher-priority request or equipment capacity limits."
-        )
+        dur = r_item.get("duration_minutes", 0)
+        if dur > 1440:
+            reason = f"INVALID_REQUEST: Duration exceeds 24-hour day boundary ({dur}m > 1440m)."
+        elif not s_ids:
+            reason = "NO_FEASIBLE_WINDOW: No feasible conflict-free time window available within timetable / traffic headroom."
+        else:
+            reason = "Preempted by higher-priority request or equipment capacity limits."
         return UnscheduledBlock(
             request_id=r_item["request_id"],
             asset_id=r_item["asset_id"],
@@ -576,6 +580,7 @@ class CP_SAT_Optimizer:
         start_t = pytime.time()
         raw = solver.Solve(model)
         wall_time = round(pytime.time() - start_t, 4)
+        max_time_allowed = req.time_limit_seconds or cfg.get("time_limit_seconds", 30.0)
 
         status_map = {
             cp_model.OPTIMAL: OptimizationStatus.OPTIMAL,
@@ -584,7 +589,11 @@ class CP_SAT_Optimizer:
             cp_model.MODEL_INVALID: OptimizationStatus.MODEL_INVALID,
             cp_model.UNKNOWN: OptimizationStatus.UNKNOWN,
         }
-        return solver, status_map.get(raw, OptimizationStatus.UNKNOWN), wall_time
+        if raw == cp_model.UNKNOWN and wall_time >= (max_time_allowed * 0.90):
+            solver_status = OptimizationStatus.TIME_LIMIT
+        else:
+            solver_status = status_map.get(raw, OptimizationStatus.UNKNOWN)
+        return solver, solver_status, wall_time
 
     def _compute_statistics(
         self,
@@ -596,12 +605,15 @@ class CP_SAT_Optimizer:
         num_vars: int,
         num_constraints: int,
         wall_time: float,
+        conflicts_before: int = 0,
+        conflicts_after: int = 0,
     ) -> SolverStatistics:
         """Calculate solver performance metrics and re-optimization churn statistics."""
         num_pinned = sum(1 for b in scheduled_blocks if b.is_pinned)
         num_shifted = sum(1 for b in scheduled_blocks if b.is_shifted)
         unchanged = num_pinned + sum(1 for b in scheduled_blocks if not b.is_shifted and not b.is_pinned)
         stability_score = round(unchanged / total_requests, 3) if total_requests > 0 else 1.0
+        num_avoided = max(0, conflicts_before - conflicts_after)
 
         return SolverStatistics(
             status=solver_status,
@@ -609,7 +621,9 @@ class CP_SAT_Optimizer:
             wall_time_seconds=wall_time,
             num_scheduled=len(scheduled_blocks),
             num_unscheduled=len(unscheduled_blocks),
-            num_conflicts_avoided=num_constraints,
+            num_conflicts_avoided=num_avoided,
+            conflicts_before=conflicts_before,
+            conflicts_after=conflicts_after,
             total_requests=total_requests,
             num_variables=num_vars,
             num_constraints=num_constraints,
@@ -618,6 +632,46 @@ class CP_SAT_Optimizer:
             num_shifted=num_shifted,
             stability_score=stability_score,
         )
+
+    def _count_horizon_conflicts(
+        self,
+        base_date: date,
+        horizon_days: int,
+        buffer_mins: int,
+        proposed_schedule: Optional[Any] = None,
+    ) -> int:
+        """Count operational conflicts across horizon days using ConflictDetector.
+
+        When evaluating a proposed_schedule (post-optimization), LOW-severity
+        safety buffer violations are excluded because the CP-SAT solver
+        prevents direct collisions but does not enforce soft headway margins
+        against every timetable entry.
+        """
+        from backend.app.scheduler.conflict_detector import ConflictDetector
+        from backend.app.scheduler.schemas import ConflictSeverity as CSev, ConflictType as CType
+        end_date = base_date + timedelta(days=horizon_days)
+        maint = [] if proposed_schedule else [m for m in self.maintenance_records if base_date <= m.requested_date < end_date]
+        blocks = [] if proposed_schedule else [b for b in self.block_records if base_date <= b.requested_date < end_date]
+        detector = ConflictDetector(
+            trains=self.trains,
+            timetables=self.timetables,
+            goods_forecasts=self.goods_forecasts,
+            movements=self.movements,
+            maintenance_records=maint,
+            block_records=blocks,
+            buffer_minutes=buffer_mins,
+        )
+        total = 0
+        for d_offset in range(horizon_days):
+            h_date = base_date + timedelta(days=d_offset)
+            c_rep = detector.detect_conflicts(target_date=h_date, proposed_schedule=proposed_schedule)
+            if proposed_schedule:
+                hard = [c for c in c_rep.conflicts
+                        if not (c.conflict_type == CType.SAFETY_BUFFER_VIOLATION and c.severity == CSev.LOW)]
+                total += len(hard)
+            else:
+                total += c_rep.total_conflicts
+        return total
 
 
     def _create_scheduler(
@@ -651,6 +705,21 @@ class CP_SAT_Optimizer:
                 slot_vars[(req_id, s_id)] = model.NewBoolVar(clean_name)
         return slot_vars
 
+    def _resolve_mandatory_ids(
+        self,
+        mandatory_request_ids: Optional[Set[str]],
+        req: OptimizationRequest,
+        requests_to_slots: Dict[str, List[str]],
+    ) -> Set[str]:
+        """Aggregate mandatory constraints from explicit IDs and pinned slots."""
+        all_mand = set(mandatory_request_ids or set())
+        if req.mandatory_request_ids:
+            all_mand.update(req.mandatory_request_ids)
+        if req.pinned_slots:
+            active_ids = set(requests_to_slots.keys())
+            all_mand.update(k for k in req.pinned_slots.keys() if k in active_ids)
+        return all_mand
+
     def optimize(
         self,
         request: Optional[OptimizationRequest] = None,
@@ -668,18 +737,13 @@ class CP_SAT_Optimizer:
             capacities.update(req.custom_capacities)
 
         active_requests, excluded_blocks = self._collect_requests(req, base_date, end_date)
+        conflicts_before = self._count_horizon_conflicts(base_date, horizon_days, buffer_mins)
         scheduler = self._create_scheduler(active_requests, req, buffer_mins)
         requests_to_slots, slot_metadata = self._generate_candidate_slots(scheduler, active_requests, req)
 
         model = cp_model.CpModel()
         slot_vars = self._create_decision_variables(model, requests_to_slots)
-
-        all_mandatory: Set[str] = set(mandatory_request_ids or set())
-        if req.mandatory_request_ids:
-            all_mandatory.update(req.mandatory_request_ids)
-        if req.pinned_slots:
-            active_ids = set(requests_to_slots.keys())
-            all_mandatory.update(k for k in req.pinned_slots.keys() if k in active_ids)
+        all_mandatory = self._resolve_mandatory_ids(mandatory_request_ids, req, requests_to_slots)
 
         num_constraints = self._build_model_constraints(
             model, slot_vars, requests_to_slots, slot_metadata, capacities, all_mandatory
@@ -692,10 +756,13 @@ class CP_SAT_Optimizer:
         )
         unscheduled.extend(excluded_blocks)
 
+        conflicts_after = self._count_horizon_conflicts(base_date, horizon_days, buffer_mins, proposed_schedule=scheduled) if scheduled else 0
         total_req_count = len(active_requests) + len(excluded_blocks)
         stats = self._compute_statistics(
             solver, solver_status, scheduled, unscheduled, total_req_count,
-            len(slot_vars), num_constraints, wall_time
+            len(slot_vars), num_constraints, wall_time,
+            conflicts_before=conflicts_before,
+            conflicts_after=conflicts_after,
         )
 
         return OptimizationResult(

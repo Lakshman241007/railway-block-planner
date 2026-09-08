@@ -14,6 +14,7 @@ import ScheduledPossessionsTable from './ScheduledPossessionsTable';
 import UnscheduledDiagnosticsTable from './UnscheduledDiagnosticsTable';
 import { useCandidateTasks } from './useCandidateTasks';
 
+
 export default function OptimizationPanel({
   targetDate,
   onRunOptimization,

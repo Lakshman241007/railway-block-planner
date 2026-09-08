@@ -12,7 +12,7 @@ from datetime import date, datetime, time, timedelta, timezone
 import logging
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from backend.app.forecast.schemas import GoodsForecastItem
+from backend.app.forecast.schemas import ForecastConfidenceLevel, GoodsForecastItem
 from backend.app.scheduler.schemas import (
     ConflictItem,
     ConflictReport,
@@ -141,39 +141,58 @@ class ConflictDetector:
         self.block_records = block_records or []
         self.buffer_minutes = max(0, buffer_minutes)
 
-    def _gather_block_windows(
-        self,
-        proposed_schedule: Optional[ScheduleResult],
-        c_date: date,
-        next_date: date,
-    ) -> List[Dict[str, Any]]:
-        """Extract all candidate possession intervals normalized in absolute minutes."""
-        block_windows: List[Dict[str, Any]] = []
+    def _gather_proposed_windows(self, proposed_schedule: Any, c_date: date) -> List[Dict[str, Any]]:
+        """Extract intervals from proposed ScheduleResult or list of OptimizedBlock."""
+        windows: List[Dict[str, Any]] = []
+        raw_items = getattr(proposed_schedule, "scheduled_items", None)
+        if raw_items is None and isinstance(proposed_schedule, (list, tuple)):
+            raw_items = proposed_schedule
+        elif raw_items is None:
+            raw_items = []
 
-        if proposed_schedule:
-            for item in proposed_schedule.scheduled_items:
-                if item.assigned_slot:
-                    s_min = _parse_time_to_minutes(item.assigned_slot.start_time)
-                    if s_min is not None:
-                        day_off = (item.assigned_slot.service_date - c_date).days * 1440
-                        abs_s = day_off + s_min
-                        block_windows.append({
-                            "id": item.request_id,
-                            "type": "ScheduledBlock",
-                            "location": item.location,
-                            "start": abs_s,
-                            "end": abs_s + item.requested_duration,
-                            "priority": item.priority,
-                            "equipment": getattr(item, "equipment", None),
-                        })
+        for item in raw_items:
+            if hasattr(item, "assigned_slot") and item.assigned_slot:
+                s_min = _parse_time_to_minutes(item.assigned_slot.start_time)
+                if s_min is not None:
+                    day_off = (item.assigned_slot.service_date - c_date).days * 1440
+                    abs_s = day_off + s_min
+                    windows.append({
+                        "id": item.request_id,
+                        "type": "ScheduledBlock",
+                        "location": item.location,
+                        "start": abs_s,
+                        "end": abs_s + item.requested_duration,
+                        "priority": item.priority,
+                        "equipment": getattr(item, "equipment", None),
+                    })
+            elif hasattr(item, "start_time") and getattr(item, "service_date", None):
+                s_min = _parse_time_to_minutes(item.start_time)
+                if s_min is not None:
+                    day_off = (item.service_date - c_date).days * 1440
+                    abs_s = day_off + s_min
+                    dur = getattr(item, "duration_minutes", 60)
+                    b_id = getattr(item, "block_id", None) or getattr(item, "request_id", "BLK")
+                    windows.append({
+                        "id": b_id,
+                        "type": "ScheduledBlock",
+                        "location": item.location,
+                        "start": abs_s,
+                        "end": abs_s + dur,
+                        "priority": getattr(item, "priority", Priority.MEDIUM),
+                        "equipment": getattr(item, "equipment", None),
+                    })
+        return windows
 
+    def _gather_db_windows(self, c_date: date, next_date: date) -> List[Dict[str, Any]]:
+        """Extract intervals from active database maintenance records and block records."""
+        windows: List[Dict[str, Any]] = []
         for m in self.maintenance_records:
             if m.requested_date in (c_date, next_date) and m.maintenance_required:
                 p_start = _parse_time_to_minutes(m.preferred_start)
                 if p_start is not None:
                     day_off = (m.requested_date - c_date).days * 1440
                     abs_s = day_off + p_start
-                    block_windows.append({
+                    windows.append({
                         "id": m.asset_id,
                         "type": "MaintenanceRequest",
                         "location": m.location,
@@ -190,7 +209,7 @@ class ConflictDetector:
                     dur = _calculate_duration_minutes(b.requested_start, b.requested_end)
                     day_off = (b.requested_date - c_date).days * 1440
                     abs_s = day_off + b_start
-                    block_windows.append({
+                    windows.append({
                         "id": b.block_id,
                         "type": "BlockRequest",
                         "location": b.location,
@@ -199,8 +218,18 @@ class ConflictDetector:
                         "priority": b.priority,
                         "equipment": None,
                     })
+        return windows
 
-        return block_windows
+    def _gather_block_windows(
+        self,
+        proposed_schedule: Optional[Any],
+        c_date: date,
+        next_date: date,
+    ) -> List[Dict[str, Any]]:
+        """Extract all candidate possession intervals normalized in absolute minutes."""
+        if proposed_schedule:
+            return self._gather_proposed_windows(proposed_schedule, c_date)
+        return self._gather_db_windows(c_date, next_date)
 
     def _detect_timetable_conflicts(
         self,
@@ -354,30 +383,159 @@ class ConflictDetector:
                 overlap_s = max(abs_fs, blk["start"])
                 overlap_e = min(abs_fe, blk["end"])
                 if overlap_s < overlap_e:
-                    dur = overlap_e - overlap_s
-                    p_blk = blk.get("priority", Priority.MEDIUM)
-                    sev = ConflictSeverity.HIGH if p_blk in (Priority.CRITICAL, Priority.HIGH) else ConflictSeverity.MEDIUM
-                    conflicts.append(ConflictItem(
-                        conflict_id=f"CONF-{c_idx:04d}",
-                        conflict_type=ConflictType.TRAIN_BLOCK,
-                        severity=sev,
-                        location=blk["location"],
-                        service_date=c_date,
-                        start_time=_format_minutes_to_time(overlap_s),
-                        end_time=_format_minutes_to_time(overlap_e),
-                        overlap_minutes=dur,
-                        entity1_type="GoodsForecast",
-                        entity1_id=fc.train_id,
-                        entity2_type=blk["type"],
-                        entity2_id=blk["id"],
-                        description=f"Forecasted goods movement {fc.train_id} on {fc.section} overlaps with {blk['type']} {blk['id']}.",
-                        suggested_action=f"Traffic Precedence: Route goods train {fc.train_id} via Loop line siding to prioritize {blk['type']} {blk['id']} ({p_blk.value}).",
-                        entity1_priority="Freight Movement",
-                        entity2_priority=p_blk.value,
-                        precedence_entity_id=blk["id"],
-                        resolution_strategy="Reroute / Loop Line Possession",
+                    conflicts.append(self._build_goods_conflict_item(
+                        c_idx, c_date, fc, blk, overlap_s, overlap_e
                     ))
                     c_idx += 1
+
+        return conflicts, c_idx
+
+    def _build_goods_conflict_item(
+        self,
+        c_idx: int,
+        c_date: date,
+        fc: GoodsForecastItem,
+        blk: Dict[str, Any],
+        overlap_s: int,
+        overlap_e: int,
+    ) -> ConflictItem:
+        """Construct ConflictItem for forecasted freight overlap with maintenance slot."""
+        dur = overlap_e - overlap_s
+        p_blk = blk.get("priority", Priority.MEDIUM)
+        is_low_conf = (
+            getattr(fc, "confidence_level", None) == ForecastConfidenceLevel.LOW
+            or getattr(fc, "confidence_score", 1.0) < 0.5
+        )
+        if is_low_conf:
+            sev = ConflictSeverity.LOW
+            note = f" (Advisory: Low Confidence {getattr(fc, 'confidence_score', 0.25)*100:.0f}%)"
+        else:
+            sev = ConflictSeverity.HIGH if p_blk in (Priority.CRITICAL, Priority.HIGH) else ConflictSeverity.MEDIUM
+            note = ""
+
+        return ConflictItem(
+            conflict_id=f"CONF-{c_idx:04d}",
+            conflict_type=ConflictType.TRAIN_BLOCK,
+            severity=sev,
+            location=blk["location"],
+            service_date=c_date,
+            start_time=_format_minutes_to_time(overlap_s),
+            end_time=_format_minutes_to_time(overlap_e),
+            overlap_minutes=dur,
+            entity1_type="GoodsForecast",
+            entity1_id=fc.train_id,
+            entity2_type=blk["type"],
+            entity2_id=blk["id"],
+            description=f"Forecasted goods movement {fc.train_id} on {fc.section} overlaps with {blk['type']} {blk['id']}{note}.",
+            suggested_action=f"Traffic Precedence: Route goods train {fc.train_id} via Loop line siding to prioritize {blk['type']} {blk['id']} ({p_blk.value}).",
+            entity1_priority="Freight Movement",
+            entity2_priority=p_blk.value,
+            precedence_entity_id=blk["id"],
+            resolution_strategy="Reroute / Loop Line Possession",
+        )
+
+    def _build_movement_collision_item(
+        self,
+        c_idx: int,
+        c_date: date,
+        m: MovementRecord,
+        blk: Dict[str, Any],
+        overlap_s: int,
+        overlap_e: int,
+    ) -> ConflictItem:
+        """Construct ConflictItem for active train movement direct collision."""
+        dur = overlap_e - overlap_s
+        p_blk = blk.get("priority", Priority.MEDIUM)
+        sev = ConflictSeverity.CRITICAL if p_blk in (Priority.CRITICAL, Priority.HIGH) else ConflictSeverity.HIGH
+        return ConflictItem(
+            conflict_id=f"CONF-{c_idx:04d}",
+            conflict_type=ConflictType.TRAIN_BLOCK,
+            severity=sev,
+            location=blk["location"],
+            service_date=c_date,
+            start_time=_format_minutes_to_time(overlap_s),
+            end_time=_format_minutes_to_time(overlap_e),
+            overlap_minutes=dur,
+            entity1_type="Movement",
+            entity1_id=m.train_id,
+            entity2_type=blk["type"],
+            entity2_id=blk["id"],
+            description=f"Active movement of train {m.train_id} on section {m.section} directly collides with {blk['type']} {blk['id']}.",
+            suggested_action=f"Adjust possession timing or re-route train {m.train_id} via Loop line.",
+            entity1_priority="Active Movement",
+            entity2_priority=p_blk.value if hasattr(p_blk, "value") else str(p_blk),
+        )
+
+    def _build_movement_buffer_item(
+        self,
+        c_idx: int,
+        c_date: date,
+        m: MovementRecord,
+        blk: Dict[str, Any],
+        abs_m_start: int,
+        abs_m_end: int,
+        buf_gap: int,
+    ) -> ConflictItem:
+        """Construct ConflictItem for active movement safety buffer violation."""
+        p_blk = blk.get("priority", Priority.MEDIUM)
+        return ConflictItem(
+            conflict_id=f"CONF-{c_idx:04d}",
+            conflict_type=ConflictType.SAFETY_BUFFER_VIOLATION,
+            severity=ConflictSeverity.LOW,
+            location=blk["location"],
+            service_date=c_date,
+            start_time=_format_minutes_to_time(abs_m_start),
+            end_time=_format_minutes_to_time(abs_m_end),
+            overlap_minutes=0,
+            entity1_type="Movement",
+            entity1_id=m.train_id,
+            entity2_type=blk["type"],
+            entity2_id=blk["id"],
+            description=f"Train movement {m.train_id} passes within {buf_gap} min (< {self.buffer_minutes} min buffer) of {blk['type']} {blk['id']}.",
+            suggested_action=f"Maintain minimum safety buffer of {self.buffer_minutes} min.",
+            entity1_priority="Active Movement",
+            entity2_priority=p_blk.value if hasattr(p_blk, "value") else str(p_blk),
+        )
+
+    def _detect_movement_conflicts(
+        self,
+        block_windows: List[Dict[str, Any]],
+        c_date: date,
+        start_idx: int,
+    ) -> Tuple[List[ConflictItem], int]:
+        """Check train-block conflicts against active train movements (COA)."""
+        conflicts: List[ConflictItem] = []
+        c_idx = start_idx
+
+        for m in self.movements:
+            m_start = _parse_time_to_minutes(m.entry_time)
+            m_end = _parse_time_to_minutes(m.exit_time)
+            if m_start is None or m_end is None:
+                continue
+            if m_end < m_start:
+                m_end += 1440
+            abs_m_start = m_start
+            abs_m_end = m_end
+
+            for blk in block_windows:
+                if not _locations_match(m.section, blk["location"]):
+                    continue
+                overlap_s = max(abs_m_start, blk["start"])
+                overlap_e = min(abs_m_end, blk["end"])
+                if overlap_s < overlap_e:
+                    conflicts.append(self._build_movement_collision_item(
+                        c_idx, c_date, m, blk, overlap_s, overlap_e
+                    ))
+                    c_idx += 1
+                elif self.buffer_minutes > 0:
+                    gap_before = blk["start"] - abs_m_end
+                    gap_after = abs_m_start - blk["end"]
+                    if (0 <= gap_before < self.buffer_minutes) or (0 <= gap_after < self.buffer_minutes):
+                        buf_gap = min(gap_before if gap_before >= 0 else 9999, gap_after if gap_after >= 0 else 9999)
+                        conflicts.append(self._build_movement_buffer_item(
+                            c_idx, c_date, m, blk, abs_m_start, abs_m_end, buf_gap
+                        ))
+                        c_idx += 1
 
         return conflicts, c_idx
 
@@ -493,6 +651,9 @@ class ConflictDetector:
         block_windows = self._gather_block_windows(proposed_schedule, c_date, next_date)
         tt_conflicts, c_idx = self._detect_timetable_conflicts(block_windows, c_date, next_date, 1)
         conflicts.extend(tt_conflicts)
+
+        mov_conflicts, c_idx = self._detect_movement_conflicts(block_windows, c_date, c_idx)
+        conflicts.extend(mov_conflicts)
 
         fc_conflicts, c_idx = self._detect_goods_conflicts(block_windows, c_date, next_date, c_idx)
         conflicts.extend(fc_conflicts)

@@ -189,6 +189,7 @@ class BlockPlanner:
             timetables=self.timetables,
             goods_forecasts=forecast_items,
             movements=self.movements,
+            trains=self.trains,
         )
 
         return optimizer.optimize(request=req)

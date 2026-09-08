@@ -1,9 +1,7 @@
 /**
  * @module blocks
- * @description BDMS Blocks API Service — PATCH/GET wrappers for the
+ * @description BDMS Blocks API Service — GET/POST/PATCH wrappers for the
  *              /api/blocks REST endpoints.
- * @author       Railway Block Planner Team
- * @lastModified 2026-09-07
  * @dependencies services/api.js → apiFetch
  */
 
@@ -24,9 +22,34 @@ export async function getBlockById(blockId) {
 }
 
 /**
+ * Submit a new block request to BDMS (POST /api/blocks).
+ *
+ * @param {Object} payload - Block request fields:
+ *   block_id, location, block_type, requested_date,
+ *   requested_start, requested_end, reason, priority
+ * @returns {Promise<Object>} BlockValidationResponse from server
+ */
+export async function submitBlock(payload) {
+  return apiFetch('/api/blocks', {
+    method: 'POST',
+    body: JSON.stringify({
+      block_id: payload.block_id,
+      location: payload.location,
+      block_type: payload.block_type,
+      requested_date: payload.requested_date,
+      requested_start: payload.requested_start,
+      requested_end: payload.requested_end,
+      reason: payload.reason,
+      priority: payload.priority,
+      source: payload.source || 'BDMS-UI',
+    }),
+  });
+}
+
+/**
  * Partially update a block disconnection record.
  *
- * Only the fields you include in {@link data} are written to the database;
+ * Only the fields you include in data are written to the database;
  * all other fields remain unchanged.
  *
  * @param {string} blockId - The block_id of the record to update.

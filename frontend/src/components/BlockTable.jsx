@@ -8,6 +8,7 @@ export default function BlockTable({
   subtitle = 'Operational track disconnection and maintenance requests',
   onSelectBlock,
   showFilters = true,
+  headerAction = null,
 }) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -39,6 +40,7 @@ export default function BlockTable({
           <div className="panel-title">{title} ({filtered.length})</div>
           <div className="panel-subtitle">{subtitle}</div>
         </div>
+        {headerAction && <div>{headerAction}</div>}
       </div>
 
       <div className="panel-body">
