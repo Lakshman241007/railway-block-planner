@@ -8,21 +8,42 @@ goods train forecasting, maintenance slot scheduling, and conflict detection.
 from __future__ import annotations
 
 import os
+import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Dict
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from backend.app.api.routes import blocks, forecast, maintenance, plans, scheduler, trains
 from backend.app.database.connection import SessionLocal, init_db
+from backend.app.database.seed import seed_database
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan context manager: initializes database on startup."""
-    init_db()
+    """Application lifespan: initializes DB tables and seeds data from CSV files."""
+    logger.info("Starting Railway Block Planner API — seeding database from CSV files...")
+    try:
+        stats = seed_database()
+        logger.info(
+            "Seed complete — trains=%d, maintenance=%d, movements=%d, blocks=%d, timetable=%d",
+            stats["inserted_trains"],
+            stats["inserted_maintenance"],
+            stats["inserted_movements"],
+            stats["inserted_blocks"],
+            stats["inserted_timetable"],
+        )
+    except Exception as exc:
+        logger.warning("Seed failed (database may already contain data or be unavailable): %s", exc)
+        # Still try to ensure tables exist
+        init_db()
     yield
 
 
@@ -76,13 +97,6 @@ def health_check() -> Dict[str, Any]:
         "phase": "Phase 4 - Forecast + Scheduler + Conflict Detection",
     }
 
-
-import logging
-from pathlib import Path
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
-
-logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Route Registrations

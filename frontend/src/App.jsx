@@ -277,6 +277,7 @@ export default function App() {
         <BlockDetailModal
           block={selectedDetailBlock}
           onClose={() => setSelectedDetailBlock(null)}
+          onSave={fetchAllData}
         />
       )}
 
