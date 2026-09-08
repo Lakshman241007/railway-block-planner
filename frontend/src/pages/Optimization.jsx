@@ -1,4 +1,5 @@
 import React from 'react';
+import PageContainer from '../components/PageContainer';
 import OptimizationPanel from '../components/OptimizationPanel';
 
 export default function Optimization({
@@ -10,7 +11,7 @@ export default function Optimization({
   onSelectBlock,
 }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <PageContainer>
       <OptimizationPanel
         targetDate={targetDate}
         onRunOptimization={onRunOptimization}
@@ -19,6 +20,6 @@ export default function Optimization({
         optimizationStep={optimizationStep}
         onSelectBlock={onSelectBlock}
       />
-    </div>
+    </PageContainer>
   );
 }

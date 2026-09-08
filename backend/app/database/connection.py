@@ -12,6 +12,7 @@ import os
 from contextlib import contextmanager
 from typing import Generator
 
+from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
@@ -19,9 +20,12 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 # Database URL & Engine Configuration
 # ---------------------------------------------------------------------------
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_DB_PATH = PROJECT_ROOT / "railway_block_planner.db"
+
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "sqlite:///./railway_block_planner.db"
+    f"sqlite:///{DEFAULT_DB_PATH.as_posix()}"
 )
 
 # Connect args specific to SQLite for multithreaded access

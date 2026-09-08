@@ -17,9 +17,11 @@ import { checkBackendHealth } from './services/api';
 import { getBlocks } from './services/blocks';
 import { getMaintenance } from './services/maintenance';
 import { getTrains } from './services/trains';
+import { getMovements } from './services/movements';
+import { getTimetable } from './services/timetable';
 import { getGoodsForecast, runGoodsForecast } from './services/forecast';
 import { detectConflicts } from './services/scheduler';
-import { optimizePlan } from './services/plans';
+import { optimizePlan, getLatestOptimizedPlan } from './services/plans';
 
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard');
@@ -31,8 +33,11 @@ export default function App() {
   const [blocks, setBlocks] = useState([]);
   const [maintenance, setMaintenance] = useState([]);
   const [trains, setTrains] = useState([]);
+  const [movements, setMovements] = useState([]);
+  const [timetable, setTimetable] = useState([]);
   const [forecasts, setForecasts] = useState([]);
   const [conflicts, setConflicts] = useState([]);
+  const [apiErrors, setApiErrors] = useState({});
   const [optimizationResult, setOptimizationResult] = useState(null);
 
   // Interactive UI State
@@ -60,29 +65,93 @@ export default function App() {
       const health = await checkBackendHealth();
       setIsOnline(health.online);
 
-      // Fetch in parallel
-      const [blocksRes, maintRes, trainsRes, forecastRes, conflictRes] = await Promise.allSettled([
+      // Fetch all operational data in parallel
+      const [
+        blocksRes,
+        maintRes,
+        trainsRes,
+        movementsRes,
+        timetableRes,
+        forecastRes,
+        conflictRes,
+      ] = await Promise.allSettled([
         getBlocks({ limit: 200 }),
         getMaintenance({ limit: 200 }),
         getTrains({ limit: 200 }),
+        getMovements({ limit: 200 }),
+        getTimetable({ service_date: targetDate, limit: 500 }),
         getGoodsForecast({ target_date: targetDate }),
         detectConflicts(targetDate, 15),
       ]);
 
+      const errors = {};
+
       if (blocksRes.status === 'fulfilled' && blocksRes.value?.data) {
         setBlocks(blocksRes.value.data);
+      } else if (blocksRes.status === 'rejected') {
+        errors.blocks = blocksRes.reason?.message || 'Failed to load block requests';
       }
+
       if (maintRes.status === 'fulfilled' && maintRes.value?.data) {
         setMaintenance(maintRes.value.data);
+      } else if (maintRes.status === 'rejected') {
+        errors.maintenance = maintRes.reason?.message || 'Failed to load maintenance records';
       }
+
       if (trainsRes.status === 'fulfilled' && trainsRes.value?.data) {
         setTrains(trainsRes.value.data);
+      } else if (trainsRes.status === 'rejected') {
+        errors.trains = trainsRes.reason?.message || 'Failed to load trains telemetry';
       }
+
+      if (movementsRes.status === 'fulfilled' && movementsRes.value?.data) {
+        setMovements(movementsRes.value.data);
+      } else if (movementsRes.status === 'rejected') {
+        errors.movements = movementsRes.reason?.message || 'Failed to load train movements';
+      }
+
+      if (timetableRes.status === 'fulfilled' && timetableRes.value?.data) {
+        setTimetable(timetableRes.value.data);
+      } else if (timetableRes.status === 'rejected') {
+        errors.timetable = timetableRes.reason?.message || 'Failed to load timetable stops';
+      }
+
       if (forecastRes.status === 'fulfilled' && forecastRes.value?.forecasts) {
         setForecasts(forecastRes.value.forecasts);
+      } else if (forecastRes.status === 'rejected') {
+        errors.forecast = forecastRes.reason?.message || 'Failed to generate goods forecast';
       }
+
       if (conflictRes.status === 'fulfilled' && conflictRes.value?.conflicts) {
         setConflicts(conflictRes.value.conflicts);
+      } else if (conflictRes.status === 'rejected') {
+        errors.conflicts = conflictRes.reason?.message || 'Failed to detect operational conflicts';
+      }
+
+      setApiErrors(errors);
+
+      // ----- Phase 5: Restore latest persisted optimization result -----
+      // Only attempt if no result already in memory (e.g. on initial load / date change)
+      if (!optimizationResult) {
+        try {
+          const storedPlan = await getLatestOptimizedPlan(targetDate);
+          if (storedPlan && storedPlan.result) {
+            setOptimizationResult(storedPlan.result);
+            const meta = storedPlan.plan_meta;
+            addToast(
+              `Restored persisted plan (${meta?.plan_id || 'unknown'}) for ${targetDate}: ` +
+              `${meta?.num_scheduled ?? '?'} scheduled, status: ${meta?.solver_status ?? '?'}.`,
+              'info'
+            );
+          }
+        } catch (planErr) {
+          // Non-fatal — the user can run optimization manually
+          console.info('No persisted optimization plan to restore for', targetDate, planErr?.message);
+        }
+      }
+
+      if (Object.keys(errors).length > 0) {
+        addToast(`Telemetry issue in ${Object.keys(errors).length} service(s).`, 'warning');
       }
     } catch (err) {
       console.error('Failed fetching telemetry:', err);
@@ -94,8 +163,12 @@ export default function App() {
   }, [targetDate]);
 
   useEffect(() => {
+    // Clear in-memory optimization result when date changes so the restore
+    // logic in fetchAllData will attempt to retrieve the plan for the new date.
+    setOptimizationResult(null);
     fetchAllData();
   }, [fetchAllData]);
+
 
   // Periodic health check
   useEffect(() => {
@@ -112,11 +185,9 @@ export default function App() {
     setOptimizationStep(1);
 
     try {
-      // Step 1: Candidate Slot Building Delay Simulation for visual feedback
-      await new Promise((r) => setTimeout(r, 450));
+      await new Promise((r) => setTimeout(r, 400));
       setOptimizationStep(2);
 
-      // Step 2: OR-Tools CP-SAT Solver Execution
       const result = await optimizePlan({
         target_date: customParams.target_date || targetDate,
         horizon_days: customParams.horizon_days || 7,
@@ -146,7 +217,7 @@ export default function App() {
 
   const handleRunForecast = async () => {
     try {
-      addToast('Running ML goods train trajectory prediction...', 'info');
+      addToast('Running goods train trajectory prediction...', 'info');
       const fc = await runGoodsForecast({ target_date: targetDate, horizon_hours: 24 });
       if (fc && fc.forecasts) {
         setForecasts(fc.forecasts);
@@ -208,16 +279,21 @@ export default function App() {
               trains={trains}
               onSelectBlock={setSelectedDetailBlock}
               loading={loading}
+              error={apiErrors.blocks || apiErrors.conflicts}
+              onRetry={fetchAllData}
             />
           )}
 
           {activePage === 'schedule' && (
             <Schedule
               blocks={blocks}
+              timetable={timetable}
               optimizationResult={optimizationResult}
               targetDate={targetDate}
               onSelectBlock={setSelectedDetailBlock}
               loading={loading}
+              error={apiErrors.blocks || apiErrors.timetable}
+              onRetry={fetchAllData}
             />
           )}
 
@@ -236,6 +312,8 @@ export default function App() {
             <Blocks
               blocks={blocks}
               loading={loading}
+              error={apiErrors.blocks}
+              onRetry={fetchAllData}
               onSelectBlock={setSelectedDetailBlock}
             />
           )}
@@ -244,6 +322,8 @@ export default function App() {
             <Maintenance
               maintenanceRecords={maintenance}
               loading={loading}
+              error={apiErrors.maintenance}
+              onRetry={fetchAllData}
               onSelectBlock={setSelectedDetailBlock}
             />
           )}
@@ -251,7 +331,10 @@ export default function App() {
           {activePage === 'trains' && (
             <Trains
               trains={trains}
+              movements={movements}
               loading={loading}
+              error={apiErrors.trains || apiErrors.movements}
+              onRetry={fetchAllData}
             />
           )}
 
@@ -259,14 +342,21 @@ export default function App() {
             <Forecast
               forecasts={forecasts}
               loading={loading}
+              error={apiErrors.forecast}
+              onRetry={fetchAllData}
               onRunForecast={handleRunForecast}
+              targetDate={targetDate}
             />
           )}
 
           {activePage === 'conflicts' && (
             <Conflicts
               conflicts={conflicts}
+              blocks={blocks}
               loading={loading}
+              error={apiErrors.conflicts}
+              onRetry={fetchAllData}
+              targetDate={targetDate}
             />
           )}
         </main>

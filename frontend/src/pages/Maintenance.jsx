@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
+import PageContainer from '../components/PageContainer';
 import PriorityBadge from '../components/PriorityBadge';
 import StatusBadge from '../components/StatusBadge';
 import LoadingState from '../components/LoadingState';
+import ErrorState from '../components/ErrorState';
 
-export default function Maintenance({ maintenanceRecords = [], loading = false, onSelectBlock }) {
+export default function Maintenance({ maintenanceRecords = [], loading = false, error = null, onRetry, onSelectBlock }) {
   const [search, setSearch] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('ALL');
 
@@ -23,7 +25,7 @@ export default function Maintenance({ maintenanceRecords = [], loading = false, 
   });
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <PageContainer>
       <div className="panel">
         <div className="panel-header">
           <div>
@@ -65,7 +67,13 @@ export default function Maintenance({ maintenanceRecords = [], loading = false, 
             </div>
           </div>
 
-          {loading ? (
+          {error ? (
+            <ErrorState
+              title="Failed to Load Maintenance Data"
+              message={error}
+              onRetry={onRetry}
+            />
+          ) : loading ? (
             <LoadingState message="Loading maintenance work orders..." />
           ) : (
             <div className="table-responsive">
@@ -106,7 +114,7 @@ export default function Maintenance({ maintenanceRecords = [], loading = false, 
                         <td className="table-cell-highlight">{m.location}</td>
                         <td>{m.maintenance_type || 'Inspection'}</td>
                         <td className="table-cell-mono">{m.requested_date}</td>
-                        <td className="table-cell-mono" style={{ color: '#34d399' }}>{m.preferred_start || '00:00'}</td>
+                        <td className="table-cell-mono" style={{ color: '#34d399' }}>{m.preferred_start || '--:--'}</td>
                         <td className="table-cell-mono">{m.duration_minutes || m.required_duration}m</td>
                         <td>
                           <span className="badge badge-outline">{m.equipment || 'Standard'}</span>
@@ -123,6 +131,6 @@ export default function Maintenance({ maintenanceRecords = [], loading = false, 
           )}
         </div>
       </div>
-    </div>
+    </PageContainer>
   );
 }

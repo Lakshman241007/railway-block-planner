@@ -25,6 +25,7 @@ class OptimizationStatus(str, Enum):
     OPTIMAL = "OPTIMAL"
     FEASIBLE = "FEASIBLE"
     INFEASIBLE = "INFEASIBLE"
+    TIME_LIMIT = "TIME_LIMIT"
     UNKNOWN = "UNKNOWN"
     MODEL_INVALID = "MODEL_INVALID"
 
@@ -199,6 +200,8 @@ class SolverStatistics(BaseModel):
     num_scheduled: int = Field(default=0, ge=0, description="Total maintenance blocks successfully scheduled")
     num_unscheduled: int = Field(default=0, ge=0, description="Total unscheduled maintenance requests")
     num_conflicts_avoided: int = Field(default=0, ge=0, description="Estimated conflicts resolved by solver")
+    conflicts_before: Optional[int] = Field(default=None, ge=0, description="Pre-optimization operational conflicts count")
+    conflicts_after: Optional[int] = Field(default=None, ge=0, description="Post-optimization operational conflicts count")
     total_requests: int = Field(default=0, ge=0, description="Total maintenance requests processed")
     num_variables: int = Field(default=0, ge=0, description="Total CP-SAT decision variables created")
     num_constraints: int = Field(default=0, ge=0, description="Total hard constraints enforced")

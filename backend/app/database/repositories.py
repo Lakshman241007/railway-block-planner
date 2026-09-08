@@ -17,6 +17,7 @@ from backend.app.database.models import (
     Block,
     Maintenance,
     Movement,
+    OptimizedPlan,
     Timetable,
     Train,
 )
@@ -481,3 +482,79 @@ class TimetableRepository:
         self.db.delete(record)
         self.db.commit()
         return True
+
+
+# ===========================================================================
+# OptimizedPlan Repository
+# ===========================================================================
+
+class OptimizedPlanRepository:
+    """
+    Repository for persisting and retrieving CP-SAT optimization results (Phase 5).
+
+    Each optimization run produces a unique OptimizedPlan record keyed by plan_id.
+    Plans are indexed by target_date to support latest-plan retrieval without
+    re-running the solver after a browser refresh.
+    """
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+    def create(self, plan_data: Dict[str, Any]) -> OptimizedPlan:
+        """
+        Persist a new optimized plan record.
+
+        Parameters
+        ----------
+        plan_data : dict
+            Must contain: plan_id, target_date, horizon_days, solver_status,
+            result_json (JSON string), and optional numeric metrics.
+        """
+        if isinstance(plan_data.get("target_date"), str):
+            plan_data["target_date"] = date.fromisoformat(plan_data["target_date"])
+        if "created_at" not in plan_data:
+            from datetime import datetime
+            plan_data["created_at"] = datetime.now()
+        record = OptimizedPlan(**plan_data)
+        self.db.add(record)
+        self.db.commit()
+        self.db.refresh(record)
+        return record
+
+    def get_by_id(self, plan_id: str) -> Optional[OptimizedPlan]:
+        """Fetch a single optimized plan by its unique plan_id."""
+        return self.db.query(OptimizedPlan).filter(OptimizedPlan.plan_id == plan_id).first()
+
+    def get_latest_by_date(self, target_date: Union[date, str]) -> Optional[OptimizedPlan]:
+        """
+        Fetch the most recently generated optimized plan for a target date.
+        Returns None if no plan exists for that date.
+        """
+        d = date.fromisoformat(target_date) if isinstance(target_date, str) else target_date
+        return (
+            self.db.query(OptimizedPlan)
+            .filter(OptimizedPlan.target_date == d)
+            .order_by(OptimizedPlan.created_at.desc(), OptimizedPlan.plan_id.desc())
+            .first()
+        )
+
+    def get_all(
+        self,
+        target_date: Optional[Union[date, str]] = None,
+        skip: int = 0,
+        limit: int = 50,
+    ) -> List[OptimizedPlan]:
+        """Fetch all optimized plan summaries with optional date filtering."""
+        query = self.db.query(OptimizedPlan)
+        if target_date:
+            d = date.fromisoformat(target_date) if isinstance(target_date, str) else target_date
+            query = query.filter(OptimizedPlan.target_date == d)
+        return query.order_by(OptimizedPlan.created_at.desc()).offset(skip).limit(limit).all()
+
+    def count(self, target_date: Optional[Union[date, str]] = None) -> int:
+        """Return count of optimized plan records."""
+        query = self.db.query(func.count(OptimizedPlan.plan_id))
+        if target_date:
+            d = date.fromisoformat(target_date) if isinstance(target_date, str) else target_date
+            query = query.filter(OptimizedPlan.target_date == d)
+        return query.scalar() or 0

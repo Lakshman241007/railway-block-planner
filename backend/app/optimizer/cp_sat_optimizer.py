@@ -125,12 +125,14 @@ class CP_SAT_Optimizer:
         goods_forecasts: Optional[List[GoodsForecastItem]] = None,
         movements: Optional[List[MovementRecord]] = None,
         config_path: Optional[Path] = None,
+        trains: Optional[List[TrainRecord]] = None,
     ) -> None:
         self.maintenance_records = maintenance_records or []
         self.block_records = block_records or []
         self.timetables = timetables or []
         self.goods_forecasts = goods_forecasts or []
         self.movements = movements or []
+        self.trains = trains or []
         self.config = load_constraints_config(config_path)
 
     def optimize(
@@ -236,45 +238,81 @@ class CP_SAT_Optimizer:
             req_id = r_item["request_id"]
             r_date = r_item["requested_date"]
             requests_to_slots[req_id] = []
-
-            # Search for feasible candidate slots on the requested date
-            slots = scheduler.find_feasible_slots(
-                location=r_item["location"],
-                duration_minutes=r_item["duration_minutes"],
-                preferred_start=r_item["preferred_start"],
-                target_date=r_date,
-                max_slots=req.max_slots_per_request,
-            )
-
             pref_mins = _parse_time_to_minutes(r_item["preferred_start"]) or 600
 
-            for slot in slots:
-                s_id = f"OPT-SLOT-{slot_counter:04d}"
-                slot_counter += 1
-                requests_to_slots[req_id].append(s_id)
+            # Determine candidate dates: start with preferred requested_date
+            dates_to_search = [r_date]
+            if horizon_days > 1:
+                # In multi-day horizon, also evaluate subsequent dates up to horizon boundary
+                max_forward = min(horizon_days, (end_date - r_date).days)
+                for f_offset in range(1, max_forward):
+                    dates_to_search.append(r_date + timedelta(days=f_offset))
 
-                s_start_min = _parse_time_to_minutes(slot.start_time) or 0
-                s_end_min = s_start_min + r_item["duration_minutes"]
+            for d_idx, search_date in enumerate(dates_to_search):
+                day_shift = (search_date - r_date).days
+                slots_needed = req.max_slots_per_request if d_idx == 0 else max(1, req.max_slots_per_request - len(requests_to_slots[req_id]))
+                if slots_needed <= 0:
+                    break
 
-                slot_metadata[s_id] = {
-                    "slot_id": s_id,
-                    "request_id": req_id,
-                    "asset_id": r_item["asset_id"],
-                    "block_id": r_item["block_id"],
-                    "location": r_item["location"],
-                    "service_date": r_date,
-                    "start_time": slot.start_time,
-                    "end_time": slot.end_time,
-                    "start_minutes": s_start_min,
-                    "end_minutes": s_end_min,
-                    "duration_minutes": r_item["duration_minutes"],
-                    "preferred_start_minutes": pref_mins,
-                    "fit_score": slot.fit_score,
-                    "is_preferred_match": slot.is_preferred_match,
-                    "priority": r_item["priority"],
-                    "equipment": r_item["equipment"],
-                    "required_resources": r_item["required_resources"],
-                }
+                slots = scheduler.find_feasible_slots(
+                    location=r_item["location"],
+                    duration_minutes=r_item["duration_minutes"],
+                    preferred_start=r_item["preferred_start"],
+                    target_date=search_date,
+                    max_slots=slots_needed,
+                )
+
+                for slot in slots:
+                    s_id = f"OPT-SLOT-{slot_counter:04d}"
+                    slot_counter += 1
+                    requests_to_slots[req_id].append(s_id)
+
+                    s_start_min = _parse_time_to_minutes(slot.start_time) or 0
+                    s_end_min = s_start_min + r_item["duration_minutes"]
+                    # Scaled fit score for shifted days
+                    fit = max(0.1, round(slot.fit_score * (0.85 ** day_shift), 3))
+
+                    slot_metadata[s_id] = {
+                        "slot_id": s_id,
+                        "request_id": req_id,
+                        "asset_id": r_item["asset_id"],
+                        "block_id": r_item["block_id"],
+                        "location": r_item["location"],
+                        "service_date": search_date,
+                        "day_shift": day_shift,
+                        "start_time": slot.start_time,
+                        "end_time": slot.end_time,
+                        "start_minutes": s_start_min,
+                        "end_minutes": s_end_min,
+                        "duration_minutes": r_item["duration_minutes"],
+                        "preferred_start_minutes": pref_mins,
+                        "fit_score": fit,
+                        "is_preferred_match": (slot.is_preferred_match and day_shift == 0),
+                        "priority": r_item["priority"],
+                        "equipment": r_item["equipment"],
+                        "required_resources": r_item["required_resources"],
+                    }
+
+                # If primary date already yielded viable candidates, don't over-expand
+                if d_idx == 0 and len(slots) >= 2:
+                    break
+
+        # 3b. Evaluate operational conflicts BEFORE optimization across horizon days
+        from backend.app.scheduler.conflict_detector import ConflictDetector
+        conflicts_before_count = 0
+        detector_pre = ConflictDetector(
+            trains=self.trains,
+            timetables=self.timetables,
+            goods_forecasts=self.goods_forecasts,
+            movements=self.movements,
+            maintenance_records=[m for m in self.maintenance_records if base_date <= m.requested_date < end_date],
+            block_records=[b for b in self.block_records if base_date <= b.requested_date < end_date],
+            buffer_minutes=buffer_mins,
+        )
+        for d_offset in range(horizon_days):
+            h_date = base_date + timedelta(days=d_offset)
+            c_rep = detector_pre.detect_conflicts(target_date=h_date)
+            conflicts_before_count += c_rep.total_conflicts
 
         # 4. Build CP-SAT Model
         model = cp_model.CpModel()
@@ -290,7 +328,8 @@ class CP_SAT_Optimizer:
 
         # Add Hard Constraints
         total_constraints += add_slot_assignment_constraints(model, slot_vars, requests_to_slots)
-        total_constraints += add_track_overlap_constraints(model, slot_vars, slot_metadata)
+        track_overlap_constraints = add_track_overlap_constraints(model, slot_vars, slot_metadata)
+        total_constraints += track_overlap_constraints
         total_constraints += add_equipment_capacity_constraints(model, slot_vars, slot_metadata, capacities)
 
         if mandatory_request_ids:
@@ -311,8 +350,9 @@ class CP_SAT_Optimizer:
 
         raw_status = solver.Solve(model)
         wall_time = round(pytime.time() - start_wall_time, 4)
+        max_time_allowed = req.time_limit_seconds or solver_cfg.get("time_limit_seconds", 30.0)
 
-        # 6. Map Solver Status
+        # 6. Map Solver Status accurately
         status_map = {
             cp_model.OPTIMAL: OptimizationStatus.OPTIMAL,
             cp_model.FEASIBLE: OptimizationStatus.FEASIBLE,
@@ -320,7 +360,10 @@ class CP_SAT_Optimizer:
             cp_model.MODEL_INVALID: OptimizationStatus.MODEL_INVALID,
             cp_model.UNKNOWN: OptimizationStatus.UNKNOWN,
         }
-        solver_status = status_map.get(raw_status, OptimizationStatus.UNKNOWN)
+        if raw_status == cp_model.UNKNOWN and wall_time >= (max_time_allowed * 0.90):
+            solver_status = OptimizationStatus.TIME_LIMIT
+        else:
+            solver_status = status_map.get(raw_status, OptimizationStatus.UNKNOWN)
 
         # 7. Extract Results
         scheduled_blocks: List[OptimizedBlock] = []
@@ -342,7 +385,7 @@ class CP_SAT_Optimizer:
             if scheduled_slot_id:
                 meta = slot_metadata[scheduled_slot_id]
                 pref_mins = _parse_time_to_minutes(r_item["preferred_start"]) or 600
-                dev_mins = abs(meta["start_minutes"] - pref_mins)
+                dev_mins = abs(meta.get("day_shift", 0) * 1440 + meta["start_minutes"] - pref_mins)
                 opt_block = OptimizedBlock(
                     block_id=f"BLK-OPT-{block_out_counter:04d}",
                     request_id=req_id,
@@ -365,11 +408,22 @@ class CP_SAT_Optimizer:
                 scheduled_blocks.append(opt_block)
                 block_out_counter += 1
             else:
-                # Diagnose unscheduled reason
-                if not s_ids:
-                    reason = "No feasible conflict-free time window available within timetable / traffic headroom."
+                # Operational diagnostic explanation for unscheduled requests
+                if r_item["duration_minutes"] <= 0 or r_item["duration_minutes"] > 1440:
+                    reason = "INVALID_REQUEST: Requested duration is invalid or exceeds 24-hour limit."
+                elif not s_ids:
+                    reason = f"NO_FEASIBLE_WINDOW: No feasible conflict-free window of {r_item['duration_minutes']} min available on {r_item['location']} due to timetable traffic and safety buffer headroom."
+                elif solver_status == OptimizationStatus.TIME_LIMIT:
+                    reason = "SOLVER_LIMIT: Solver time limit reached before slot assignment could be verified."
+                elif solver_status == OptimizationStatus.INFEASIBLE:
+                    reason = "INFEASIBLE: Mathematical model constraints cannot be satisfied simultaneously."
                 else:
-                    reason = "Preempted by higher-priority request or equipment capacity limits."
+                    eq = r_item.get("equipment")
+                    if eq and str(eq).strip().lower() not in ("none", "", "nil"):
+                        reason = f"RESOURCE_PREEMPTION: Specialized equipment capacity limit reached for '{eq}'."
+                    else:
+                        reason = f"TRACK_POSSESSION_CONFLICT: Possessions preempted by higher-priority maintenance or traffic window."
+
                 unscheduled = UnscheduledBlock(
                     request_id=req_id,
                     asset_id=r_item["asset_id"],
@@ -385,8 +439,24 @@ class CP_SAT_Optimizer:
                 )
                 unscheduled_blocks.append(unscheduled)
 
-        # Estimate conflicts avoided (overlap pairs constrained)
-        num_conflicts_avoided = total_constraints
+        # 8. Post-Optimization Conflict Validation & Truthful Avoided Metric
+        conflicts_after_count = 0
+        if scheduled_blocks and solver_status in (OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE):
+            detector_post = ConflictDetector(
+                trains=self.trains,
+                timetables=self.timetables,
+                goods_forecasts=self.goods_forecasts,
+                movements=self.movements,
+                maintenance_records=[],
+                block_records=[],
+                buffer_minutes=buffer_mins,
+            )
+            for d_offset in range(horizon_days):
+                h_date = base_date + timedelta(days=d_offset)
+                c_rep = detector_post.detect_conflicts(target_date=h_date, proposed_schedule=scheduled_blocks)
+                conflicts_after_count += c_rep.total_conflicts
+
+        num_conflicts_avoided = max(0, conflicts_before_count - conflicts_after_count)
 
         stats = SolverStatistics(
             status=solver_status,
@@ -395,6 +465,8 @@ class CP_SAT_Optimizer:
             num_scheduled=len(scheduled_blocks),
             num_unscheduled=len(unscheduled_blocks),
             num_conflicts_avoided=num_conflicts_avoided,
+            conflicts_before=conflicts_before_count,
+            conflicts_after=conflicts_after_count,
             total_requests=len(active_requests),
             num_variables=num_vars,
             num_constraints=total_constraints,

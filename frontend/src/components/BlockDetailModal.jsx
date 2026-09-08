@@ -14,17 +14,16 @@ export default function BlockDetailModal({ block, onClose }) {
       <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>
-            <div style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            <div style={{ fontSize: '0.68rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>
               Operational Detail Inspector
             </div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#00f0ff', fontFamily: 'var(--font-mono)' }}>
+            <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#38bdf8', fontFamily: 'var(--font-mono)' }}>
               {blockId} {isOvernight ? '🌙 (Overnight Block)' : ''}
             </div>
           </div>
           <button
             className="btn btn-secondary btn-icon-only btn-sm"
             onClick={onClose}
-            style={{ borderRadius: '50%' }}
           >
             ✕
           </button>
@@ -34,7 +33,7 @@ export default function BlockDetailModal({ block, onClose }) {
           <div className="detail-grid">
             <div className="detail-item">
               <span className="detail-label">Location / Section</span>
-              <span className="detail-val" style={{ fontWeight: 700 }}>{block.location || 'Chennai-Arakkonam'}</span>
+              <span className="detail-val" style={{ fontWeight: 600 }}>{block.location || 'Chennai-Arakkonam'}</span>
             </div>
 
             <div className="detail-item">
@@ -45,7 +44,7 @@ export default function BlockDetailModal({ block, onClose }) {
             <div className="detail-item">
               <span className="detail-label">Operational Window</span>
               <span className="detail-val mono" style={{ color: '#34d399' }}>
-                {block.start_time || block.requested_start || '--'} ➔ {block.end_time || block.requested_end || '--'}
+                {block.start_time || block.requested_start || '--'} → {block.end_time || block.requested_end || '--'}
               </span>
             </div>
 
@@ -76,16 +75,16 @@ export default function BlockDetailModal({ block, onClose }) {
           </div>
 
           {/* Causal or Operational Reason */}
-          <div className="card-detail-box" style={{ background: '#0a0e17' }}>
+          <div className="card-detail-box">
             <span className="detail-label">Operational Justification / Description</span>
-            <span style={{ color: '#e2e8f0', fontSize: '0.8rem', lineHeight: 1.4 }}>
+            <span style={{ color: '#e2e8f0', fontSize: '0.78rem', lineHeight: 1.4 }}>
               {block.reason || block.description || block.maintenance_type || 'Scheduled preventive corridor possession.'}
             </span>
           </div>
 
           {/* Solver Diagnostics if Unscheduled */}
           {block.reason && block.reason.toLowerCase().includes('preempt') && (
-            <div className="card-resolution-box" style={{ background: 'rgba(239, 68, 68, 0.1)', borderColor: '#ef4444' }}>
+            <div className="card-resolution-box" style={{ background: 'rgba(239, 68, 68, 0.08)', borderColor: 'rgba(239, 68, 68, 0.35)' }}>
               <strong style={{ color: '#f87171' }}>CP-SAT Solver Diagnostic:</strong>
               <div style={{ color: '#fca5a5', marginTop: 4 }}>
                 This request was not scheduled because higher priority possessions saturated track availability or machine limits on this corridor section.

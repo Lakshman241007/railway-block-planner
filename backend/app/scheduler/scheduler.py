@@ -134,7 +134,10 @@ class MaintenanceScheduler:
         self.buffer_minutes = max(0, buffer_minutes)
 
     def _build_location_occupancy(
-        self, target_date: date, location: str
+        self,
+        target_date: date,
+        location: str,
+        additional_occupancy: Optional[List[Tuple[int, int, str]]] = None,
     ) -> List[Tuple[int, int, str]]:
         """
         Collect all occupied time intervals [start_mins, end_mins, description]
@@ -142,6 +145,8 @@ class MaintenanceScheduler:
         spans across target_date and next calendar day.
         """
         occupied: List[Tuple[int, int, str]] = []
+        if additional_occupancy:
+            occupied.extend(additional_occupancy)
         next_date = target_date + timedelta(days=1)
         prev_date = target_date - timedelta(days=1)
 
@@ -230,6 +235,7 @@ class MaintenanceScheduler:
         preferred_start: str,
         target_date: date,
         max_slots: int = 5,
+        additional_occupancy: Optional[List[Tuple[int, int, str]]] = None,
     ) -> List[FeasibleSlot]:
         """
         Identify free time windows on the target date satisfying the requested duration,
@@ -238,7 +244,7 @@ class MaintenanceScheduler:
         if duration_minutes <= 0 or duration_minutes > 1440:
             return []
 
-        occupied = self._build_location_occupancy(target_date, location)
+        occupied = self._build_location_occupancy(target_date, location, additional_occupancy=additional_occupancy)
         pref_mins = _parse_time_to_minutes(preferred_start) or 600
 
         # Timeline limit covers target_date (1440) plus early morning window up to 08:00 (480 mins)
@@ -386,9 +392,13 @@ class MaintenanceScheduler:
                 })
 
 
-        # Sort requests by priority (Critical first) and duration descending
+        # Sort requests by priority (Critical first), duration descending, and request ID for strict determinism
         requests_to_schedule.sort(
-            key=lambda r: (PRIORITY_RANK.get(r["priority"], 1), r["duration"]),
+            key=lambda r: (
+                PRIORITY_RANK.get(r["priority"], 1),
+                r["duration"],
+                r["id"],
+            ),
             reverse=True,
         )
 
@@ -396,12 +406,23 @@ class MaintenanceScheduler:
         unfeasible_items: List[MaintenanceScheduleItem] = []
         sched_counter = 1
 
+        # Dynamic reservation list to prevent simultaneous double-booking during heuristic scheduling: (start, end, desc, location)
+        dynamic_occupied: List[Tuple[int, int, str, str]] = []
+
         for req in requests_to_schedule:
+            # Collect dynamic reservations from earlier scheduled requests on matching locations
+            add_occ = [
+                (s, e, desc)
+                for s, e, desc, loc in dynamic_occupied
+                if _locations_match(loc, req["location"])
+            ]
+
             slots = self.find_feasible_slots(
                 location=req["location"],
                 duration_minutes=req["duration"],
                 preferred_start=req["preferred_start"],
                 target_date=s_date,
+                additional_occupancy=add_occ,
             )
 
             if slots:
@@ -423,6 +444,11 @@ class MaintenanceScheduler:
                     notes="Feasible window identified without timetable conflicts.",
                 )
                 scheduled_items.append(item)
+
+                # Dynamically reserve this assigned slot so subsequent lower-priority requests on the same section do not collide
+                s_start = _parse_time_to_minutes(primary.start_time) or 0
+                s_end = s_start + req["duration"]
+                dynamic_occupied.append((s_start, s_end, f"Scheduled Block {req['id']}", req["location"]))
             else:
                 item = MaintenanceScheduleItem(
                     schedule_id=f"SCHED-{sched_counter:04d}",

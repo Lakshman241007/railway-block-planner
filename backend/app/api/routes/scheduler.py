@@ -80,6 +80,11 @@ def find_feasible_slots(
     )
 
 
+@router.get(
+    "/conflicts",
+    summary="Detect operational conflicts",
+    response_model=ConflictReport,
+)
 @router.post(
     "/conflicts",
     summary="Detect operational conflicts",

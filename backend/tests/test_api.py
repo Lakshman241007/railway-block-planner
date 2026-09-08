@@ -165,13 +165,15 @@ def test_get_block_by_id_success_and_404(test_client):
 
 
 def test_get_plans_endpoint(test_client):
-    """Test /api/plans returns persistence block view."""
+    """Test /api/plans returns Phase 5 block planning view (data + note)."""
     response = test_client.get("/api/plans")
     assert response.status_code == 200
     payload = response.json()
     assert "data" in payload
-    assert "message" in payload
+    # Phase 5: 'message' replaced with 'note' pointing to /api/plans/optimized
+    assert "note" in payload
     assert payload["count"] > 0
+
 
 
 # ===========================================================================
@@ -256,4 +258,65 @@ def test_plans_generate_endpoint(test_client):
     assert "schedule" in plan
     assert "conflict_report" in plan
     assert "resolution_recommendations" in plan
+
+
+def test_get_timetable_endpoint(test_client):
+    """Test GET /api/timetable returns paginated timetable stops."""
+    response = test_client.get("/api/timetable")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "data" in payload
+    assert "count" in payload
+    assert "total" in payload
+    assert payload["total"] > 0
+
+
+def test_get_timetable_filtered_by_date(test_client):
+    """Test GET /api/timetable?service_date=2026-09-07 returns stops for default date."""
+    response = test_client.get("/api/timetable?service_date=2026-09-07")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 39
+    assert all(item["service_date"] == "2026-09-07" for item in payload["data"])
+
+
+def test_get_timetable_by_train(test_client):
+    """Test GET /api/timetable/train/{train_id} returns scheduled stops."""
+    response = test_client.get("/api/timetable/train/G123")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "data" in payload
+    assert payload["count"] > 0
+    assert all(item["train_id"] == "G123" for item in payload["data"])
+
+
+def test_get_movements_endpoint(test_client):
+    """Test GET /api/movements returns corridor movement records."""
+    response = test_client.get("/api/movements")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "data" in payload
+    assert "count" in payload
+    assert "total" in payload
+    assert payload["total"] > 0
+
+
+def test_get_movements_by_train(test_client):
+    """Test GET /api/movements/train/{train_id} returns movements for train."""
+    response = test_client.get("/api/movements/train/G123")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "data" in payload
+    assert payload["count"] > 0
+    assert all(item["train_id"] == "G123" for item in payload["data"])
+
+
+def test_get_movements_by_section(test_client):
+    """Test GET /api/movements/section/{section} returns section movements."""
+    response = test_client.get("/api/movements/section/Chennai-Perambur")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "data" in payload
+    assert payload["count"] > 0
+
 

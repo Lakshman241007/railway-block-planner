@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 import logging
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from backend.app.forecast.schemas import GoodsForecastItem
+from backend.app.forecast.schemas import ForecastConfidenceLevel, GoodsForecastItem
 from backend.app.scheduler.schemas import (
     ConflictItem,
     ConflictReport,
@@ -74,26 +74,36 @@ class ConflictDetector:
     def detect_conflicts(
         self,
         target_date: Optional[date] = None,
-        proposed_schedule: Optional[ScheduleResult] = None,
+        proposed_schedule: Optional[Union[ScheduleResult, List[Any]]] = None,
     ) -> ConflictReport:
         """
         Scan all active entities for operational conflicts on the target date.
-        Uses absolute minute offsets to correctly resolve overnight possessions.
+        Uses absolute minute offsets to correctly resolve overnight possessions
+        and incorporates passenger timetables, active movements, and goods forecasts.
         """
         c_date = target_date or date.today()
         next_date = c_date + timedelta(days=1)
+        prev_date = c_date - timedelta(days=1)
         conflicts: List[ConflictItem] = []
         conflict_idx = 1
 
         # Extract blocks & maintenance windows to check (with absolute minutes relative to c_date)
-        block_windows: List[Dict] = []
+        block_windows: List[Dict[str, Any]] = []
 
         if proposed_schedule:
-            for item in proposed_schedule.scheduled_items:
-                if item.assigned_slot:
-                    s_min = _parse_time_to_minutes(item.assigned_slot.start_time)
+            items: List[Any] = []
+            if hasattr(proposed_schedule, "scheduled_items"):
+                items = list(proposed_schedule.scheduled_items)
+            elif isinstance(proposed_schedule, list):
+                items = proposed_schedule
+
+            for item in items:
+                # Handle MaintenanceScheduleItem
+                if hasattr(item, "assigned_slot") and item.assigned_slot:
+                    slot = item.assigned_slot
+                    s_min = _parse_time_to_minutes(slot.start_time)
                     if s_min is not None:
-                        day_offset = (item.assigned_slot.service_date - c_date).days * 1440
+                        day_offset = (slot.service_date - c_date).days * 1440
                         abs_s = day_offset + s_min
                         abs_e = abs_s + item.requested_duration
                         block_windows.append({
@@ -105,43 +115,89 @@ class ConflictDetector:
                             "priority": item.priority,
                             "equipment": getattr(item, "equipment", None),
                         })
+                # Handle OptimizedBlock
+                elif hasattr(item, "start_time") and hasattr(item, "service_date"):
+                    s_min = _parse_time_to_minutes(item.start_time)
+                    if s_min is not None:
+                        day_offset = (item.service_date - c_date).days * 1440
+                        abs_s = day_offset + s_min
+                        abs_e = abs_s + item.duration_minutes
+                        block_windows.append({
+                            "id": getattr(item, "block_request_id", None) or getattr(item, "request_id", None) or getattr(item, "block_id", "BLK"),
+                            "type": "OptimizedBlock",
+                            "location": item.location,
+                            "start": abs_s,
+                            "end": abs_e,
+                            "priority": item.priority,
+                            "equipment": getattr(item, "equipment", None),
+                        })
 
         # Also add un-scheduled requested maintenance records
         for m in self.maintenance_records:
-            if m.requested_date in (c_date, next_date) and m.maintenance_required:
+            if m.maintenance_required:
                 p_start = _parse_time_to_minutes(m.preferred_start)
                 if p_start is not None:
-                    day_offset = (m.requested_date - c_date).days * 1440
-                    abs_s = day_offset + p_start
-                    abs_e = abs_s + m.duration_minutes
-                    block_windows.append({
-                        "id": m.asset_id,
-                        "type": "MaintenanceRequest",
-                        "location": m.location,
-                        "start": abs_s,
-                        "end": abs_e,
-                        "priority": m.priority,
-                        "equipment": m.equipment,
-                    })
+                    if m.requested_date in (c_date, next_date):
+                        day_offset = (m.requested_date - c_date).days * 1440
+                        abs_s = day_offset + p_start
+                        abs_e = abs_s + m.duration_minutes
+                        block_windows.append({
+                            "id": m.asset_id,
+                            "type": "MaintenanceRequest",
+                            "location": m.location,
+                            "start": abs_s,
+                            "end": abs_e,
+                            "priority": m.priority,
+                            "equipment": m.equipment,
+                        })
+                    elif m.requested_date == prev_date:
+                        # Check if overnight maintenance from previous day extends into target_date
+                        if p_start + m.duration_minutes > 1440:
+                            abs_s = -1440 + p_start
+                            abs_e = abs_s + m.duration_minutes
+                            block_windows.append({
+                                "id": m.asset_id,
+                                "type": "MaintenanceRequest",
+                                "location": m.location,
+                                "start": abs_s,
+                                "end": abs_e,
+                                "priority": m.priority,
+                                "equipment": m.equipment,
+                            })
 
         # Add block records
         for b in self.block_records:
-            if b.requested_date in (c_date, next_date) and b.status != BlockStatus.CANCELLED:
+            if b.status != BlockStatus.CANCELLED:
                 b_start = _parse_time_to_minutes(b.requested_start)
                 if b_start is not None:
                     dur = _calculate_duration_minutes(b.requested_start, b.requested_end)
-                    day_offset = (b.requested_date - c_date).days * 1440
-                    abs_s = day_offset + b_start
-                    abs_e = abs_s + dur
-                    block_windows.append({
-                        "id": b.block_id,
-                        "type": "BlockRequest",
-                        "location": b.location,
-                        "start": abs_s,
-                        "end": abs_e,
-                        "priority": b.priority,
-                        "equipment": None,
-                    })
+                    if b.requested_date in (c_date, next_date):
+                        day_offset = (b.requested_date - c_date).days * 1440
+                        abs_s = day_offset + b_start
+                        abs_e = abs_s + dur
+                        block_windows.append({
+                            "id": b.block_id,
+                            "type": "BlockRequest",
+                            "location": b.location,
+                            "start": abs_s,
+                            "end": abs_e,
+                            "priority": b.priority,
+                            "equipment": None,
+                        })
+                    elif b.requested_date == prev_date:
+                        # Check if overnight block from previous day extends into target_date
+                        if b_start + dur > 1440:
+                            abs_s = -1440 + b_start
+                            abs_e = abs_s + dur
+                            block_windows.append({
+                                "id": b.block_id,
+                                "type": "BlockRequest",
+                                "location": b.location,
+                                "start": abs_s,
+                                "end": abs_e,
+                                "priority": b.priority,
+                                "equipment": None,
+                            })
 
         # -------------------------------------------------------------
         # 1. Check Train-Block Conflicts against Timetable stops
@@ -177,11 +233,11 @@ class ConflictDetector:
                             entity2_type=blk["type"],
                             entity2_id=blk["id"],
                             description=f"Train {tt.train_id} scheduled at {tt.station_code} overlaps with {blk['type']} {blk['id']}.",
-                            suggested_action=f"Shift {blk['type']} {blk['id']} to clear interval after {_format_minutes_to_time(abs_t_end + 15)}.",
+                            suggested_action=f"Shift {blk['type']} {blk['id']} to clear interval after {_format_minutes_to_time(abs_t_end + self.buffer_minutes)}.",
                         ))
                         conflict_idx += 1
                     # Check safety buffer violation
-                    else:
+                    elif self.buffer_minutes > 0:
                         gap_before = blk["start"] - abs_t_end
                         gap_after = abs_t_start - blk["end"]
                         if (0 <= gap_before < self.buffer_minutes) or (0 <= gap_after < self.buffer_minutes):
@@ -205,7 +261,67 @@ class ConflictDetector:
                             conflict_idx += 1
 
         # -------------------------------------------------------------
-        # 2. Check Train-Block Conflicts against Goods Forecasts
+        # 2. Check Train-Block Conflicts against Active Movements (COA)
+        # -------------------------------------------------------------
+        for m in self.movements:
+            m_start = _parse_time_to_minutes(m.entry_time)
+            m_end = _parse_time_to_minutes(m.exit_time)
+            if m_start is None or m_end is None:
+                continue
+            if m_end < m_start:
+                m_end += 1440
+            abs_m_start = m_start
+            abs_m_end = m_end
+
+            for blk in block_windows:
+                if _locations_match(m.section, blk["location"]):
+                    overlap_start = max(abs_m_start, blk["start"])
+                    overlap_end = min(abs_m_end, blk["end"])
+                    if overlap_start < overlap_end:
+                        overlap_dur = overlap_end - overlap_start
+                        sev = ConflictSeverity.CRITICAL if blk["priority"] in (Priority.CRITICAL, Priority.HIGH) else ConflictSeverity.HIGH
+                        conflicts.append(ConflictItem(
+                            conflict_id=f"CONF-{conflict_idx:04d}",
+                            conflict_type=ConflictType.TRAIN_BLOCK,
+                            severity=sev,
+                            location=blk["location"],
+                            service_date=c_date,
+                            start_time=_format_minutes_to_time(overlap_start),
+                            end_time=_format_minutes_to_time(overlap_end),
+                            overlap_minutes=overlap_dur,
+                            entity1_type="Movement",
+                            entity1_id=m.train_id,
+                            entity2_type=blk["type"],
+                            entity2_id=blk["id"],
+                            description=f"Active movement of train {m.train_id} on section {m.section} directly collides with {blk['type']} {blk['id']}.",
+                            suggested_action=f"Adjust possession timing or re-route train {m.train_id} via Loop line.",
+                        ))
+                        conflict_idx += 1
+                    elif self.buffer_minutes > 0:
+                        gap_before = blk["start"] - abs_m_end
+                        gap_after = abs_m_start - blk["end"]
+                        if (0 <= gap_before < self.buffer_minutes) or (0 <= gap_after < self.buffer_minutes):
+                            buf_gap = min(gap_before if gap_before >= 0 else 9999, gap_after if gap_after >= 0 else 9999)
+                            conflicts.append(ConflictItem(
+                                conflict_id=f"CONF-{conflict_idx:04d}",
+                                conflict_type=ConflictType.SAFETY_BUFFER_VIOLATION,
+                                severity=ConflictSeverity.LOW,
+                                location=blk["location"],
+                                service_date=c_date,
+                                start_time=_format_minutes_to_time(min(abs_m_start, blk["start"])),
+                                end_time=_format_minutes_to_time(max(abs_m_end, blk["end"])),
+                                overlap_minutes=self.buffer_minutes - buf_gap,
+                                entity1_type="Movement",
+                                entity1_id=m.train_id,
+                                entity2_type=blk["type"],
+                                entity2_id=blk["id"],
+                                description=f"Train movement {m.train_id} passes within {buf_gap} min (< {self.buffer_minutes} min buffer) of {blk['type']} {blk['id']}.",
+                                suggested_action=f"Increase clearance gap to minimum {self.buffer_minutes} minutes.",
+                            ))
+                            conflict_idx += 1
+
+        # -------------------------------------------------------------
+        # 3. Check Train-Block Conflicts against Goods Forecasts
         # -------------------------------------------------------------
         for fc in self.goods_forecasts:
             if fc.service_date in (c_date, next_date):
@@ -219,13 +335,24 @@ class ConflictDetector:
                 abs_f_start = day_offset + f_start
                 abs_f_end = day_offset + f_end
 
+                is_low_confidence = (
+                    getattr(fc, "confidence_level", None) == ForecastConfidenceLevel.LOW
+                    or getattr(fc, "confidence_score", 1.0) < 0.5
+                )
+
                 for blk in block_windows:
                     if _locations_match(fc.section, blk["location"]):
                         overlap_start = max(abs_f_start, blk["start"])
                         overlap_end = min(abs_f_end, blk["end"])
                         if overlap_start < overlap_end:
                             overlap_dur = overlap_end - overlap_start
-                            sev = ConflictSeverity.HIGH if blk["priority"] in (Priority.CRITICAL, Priority.HIGH) else ConflictSeverity.MEDIUM
+                            if is_low_confidence:
+                                sev = ConflictSeverity.LOW
+                                note = f" (Advisory: Low Confidence {fc.confidence_score*100:.0f}%)"
+                            else:
+                                sev = ConflictSeverity.HIGH if blk["priority"] in (Priority.CRITICAL, Priority.HIGH) else ConflictSeverity.MEDIUM
+                                note = ""
+
                             conflicts.append(ConflictItem(
                                 conflict_id=f"CONF-{conflict_idx:04d}",
                                 conflict_type=ConflictType.TRAIN_BLOCK,
@@ -239,7 +366,7 @@ class ConflictDetector:
                                 entity1_id=fc.train_id,
                                 entity2_type=blk["type"],
                                 entity2_id=blk["id"],
-                                description=f"Forecasted goods movement {fc.train_id} on {fc.section} overlaps with {blk['type']} {blk['id']}.",
+                                description=f"Forecasted goods movement {fc.train_id} on {fc.section} overlaps with {blk['type']} {blk['id']}{note}.",
                                 suggested_action=f"Route goods train {fc.train_id} via Loop line or shift block window.",
                             ))
                             conflict_idx += 1

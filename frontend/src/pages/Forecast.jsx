@@ -1,8 +1,20 @@
 import React, { useState } from 'react';
+import PageContainer from '../components/PageContainer';
+import StatCard from '../components/StatCard';
 import ForecastCard from '../components/ForecastCard';
 import LoadingState from '../components/LoadingState';
+import ErrorState from '../components/ErrorState';
+import EmptyState from '../components/EmptyState';
 
-export default function Forecast({ forecasts = [], loading = false, onRunForecast, isRunning = false }) {
+export default function Forecast({
+  forecasts = [],
+  loading = false,
+  error = null,
+  onRetry,
+  onRunForecast,
+  isRunning = false,
+  targetDate,
+}) {
   const [selectedSection, setSelectedSection] = useState('ALL');
 
   const filtered = forecasts.filter((f) => {
@@ -13,47 +25,38 @@ export default function Forecast({ forecasts = [], loading = false, onRunForecas
   const highConfCount = forecasts.filter((f) => f.confidence_level === 'HIGH' || f.confidence_score >= 0.75).length;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <PageContainer>
       {/* Forecast Hero / Stats */}
       <div className="stat-grid">
-        <div className="stat-card accent-amber">
-          <div className="stat-card-header">
-            <span>GOODS TRAINS DETECTED</span>
-            <span>📦</span>
-          </div>
-          <div className="stat-card-value" style={{ color: '#fbbf24' }}>
-            {forecasts.length}
-          </div>
-          <div className="stat-card-footer">
-            <span>Active Corridor Freight</span>
-          </div>
-        </div>
+        <StatCard
+          title="GOODS TRAINS DETECTED"
+          value={forecasts.length}
+          subtitle="Active Corridor Freight"
+          icon="📦"
+          accent="amber"
+          badge="FREIGHT"
+          badgeType="warning"
+        />
 
-        <div className="stat-card accent-green">
-          <div className="stat-card-header">
-            <span>HIGH CONFIDENCE</span>
-            <span>🎯</span>
-          </div>
-          <div className="stat-card-value" style={{ color: '#34d399' }}>
-            {highConfCount}
-          </div>
-          <div className="stat-card-footer">
-            <span>ML Confidence Score &ge; 75%</span>
-          </div>
-        </div>
+        <StatCard
+          title="HIGH CONFIDENCE"
+          value={highConfCount}
+          subtitle="ML Confidence Score ≥ 75%"
+          icon="🎯"
+          accent="green"
+          badge="HIGH CONF."
+          badgeType="success"
+        />
 
-        <div className="stat-card accent-cyan">
-          <div className="stat-card-header">
-            <span>FORECAST HORIZON</span>
-            <span>⏱️</span>
-          </div>
-          <div className="stat-card-value" style={{ color: '#38bdf8' }}>
-            24h
-          </div>
-          <div className="stat-card-footer">
-            <span>Entry/Exit Window Predictions</span>
-          </div>
-        </div>
+        <StatCard
+          title="FORECAST HORIZON"
+          value="24h"
+          subtitle="Entry/Exit Window Predictions"
+          icon="⏱️"
+          accent="cyan"
+          badge="COA / TDMS"
+          badgeType="info"
+        />
       </div>
 
       <div className="panel">
@@ -61,10 +64,10 @@ export default function Forecast({ forecasts = [], loading = false, onRunForecas
           <div>
             <div className="panel-title">
               <span>📈 Goods Train Movement Forecast Engine</span>
-              <span className="badge badge-cyan">Phase 4</span>
+              <span className="badge badge-cyan">{forecasts.length} PREDICTIONS</span>
             </div>
             <div className="panel-subtitle">
-              Heuristic transit window predictions powering maintenance possession scheduling
+              Heuristic transit window predictions powering maintenance possession scheduling for {targetDate}
             </div>
           </div>
 
@@ -96,12 +99,22 @@ export default function Forecast({ forecasts = [], loading = false, onRunForecas
             </div>
           </div>
 
-          {loading ? (
+          {error ? (
+            <ErrorState
+              title="Failed to Load Goods Forecast"
+              message={error}
+              onRetry={onRetry}
+            />
+          ) : loading ? (
             <LoadingState message="Generating goods train telemetry forecasts..." />
           ) : filtered.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
-              No forecasted freight movements found for this section.
-            </div>
+            <EmptyState
+              icon="📦"
+              title="No Freight Forecasts"
+              message={`No goods train movements forecasted for ${targetDate || 'selected date'}.`}
+              actionLabel={onRunForecast ? "⚡ Run Forecast" : undefined}
+              onAction={onRunForecast}
+            />
           ) : (
             <div className="card-grid">
               {filtered.map((fc, idx) => (
@@ -111,6 +124,6 @@ export default function Forecast({ forecasts = [], loading = false, onRunForecas
           )}
         </div>
       </div>
-    </div>
+    </PageContainer>
   );
 }
