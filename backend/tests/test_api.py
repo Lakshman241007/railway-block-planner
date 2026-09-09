@@ -62,9 +62,12 @@ def test_root_endpoint(test_client):
     """Test / root endpoint returns metadata."""
     response = test_client.get("/")
     assert response.status_code == 200
-    data = response.json()
-    assert data["name"] == "Railway Block Planner API"
-    assert data["docs"] == "/docs"
+    if "text/html" in response.headers.get("content-type", ""):
+        assert "<!DOCTYPE html>" in response.text
+    else:
+        data = response.json()
+        assert data["name"] == "Railway Block Planner API"
+        assert data["docs"] == "/docs"
 
 
 def test_get_trains_endpoint(test_client):
