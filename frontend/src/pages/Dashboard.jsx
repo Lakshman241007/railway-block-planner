@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import PageContainer from '../components/PageContainer';
 import StatCard from '../components/StatCard';
 import Timeline from '../components/Timeline';
@@ -6,6 +6,7 @@ import ConflictCard from '../components/ConflictCard';
 import ForecastCard from '../components/ForecastCard';
 import LoadingState from '../components/LoadingState';
 import ErrorState from '../components/ErrorState';
+import { getCanonicalPossessions } from '../types';
 
 export default function Dashboard({
   targetDate,
@@ -13,6 +14,7 @@ export default function Dashboard({
   isOptimizing,
   onRunOptimization,
   blocks = [],
+  maintenance = [],
   conflicts = [],
   forecasts = [],
   trains = [],
@@ -21,11 +23,32 @@ export default function Dashboard({
   error = null,
   onRetry,
 }) {
+  const [dateScope, setDateScope] = useState('DATE'); // 'DATE' | 'HORIZON'
+
+  const {
+    possessions: displayBlocks,
+    isOptimized,
+    horizonTotal,
+    dateTotal,
+  } = getCanonicalPossessions({
+    optimizationResult,
+    blocks,
+    targetDate,
+    dateScope,
+  });
+
   const stats = optimizationResult?.solver_statistics;
-  const scheduledCount = stats?.num_scheduled ?? blocks.filter((b) => b.status === 'Approved' || b.status === 'Scheduled').length;
+
+  // Compute date-accurate request telemetry
+  const dateBlocks = blocks.filter((b) => (b.requested_date || b.service_date) === targetDate);
+  const dateMaint = maintenance.filter((m) => (m.requested_date || m.service_date) === targetDate);
+  const totalDateRequests = dateBlocks.length + dateMaint.length;
+  const totalHorizonRequests = stats?.total_requests ?? (blocks.length + maintenance.length);
+
+  const displayRequests = dateScope === 'DATE' ? totalDateRequests : totalHorizonRequests;
+  const scheduledCount = dateScope === 'DATE' ? dateTotal : horizonTotal;
   const unscheduledCount = stats?.num_unscheduled ?? 0;
   const conflictsAvoided = stats?.num_conflicts_avoided ?? 0;
-  const totalRequests = blocks.length;
 
   return (
     <PageContainer>
@@ -60,18 +83,28 @@ export default function Dashboard({
       <div className="stat-grid">
         <StatCard
           title="TOTAL REQUESTS"
-          value={totalRequests}
-          subtitle="Track & OHE possessions"
+          value={displayRequests}
+          subtitle={
+            dateScope === 'DATE'
+              ? `${dateBlocks.length} blocks + ${dateMaint.length} maint. (${targetDate})`
+              : `${totalHorizonRequests} total across planning horizon`
+          }
           icon="🚧"
           accent="cyan"
+          badge={dateScope === 'DATE' ? targetDate : 'HORIZON'}
+          badgeType="info"
         />
         <StatCard
           title="SCHEDULED POSSESSIONS"
           value={scheduledCount}
-          subtitle="Conflict-free assigned windows"
+          subtitle={
+            dateScope === 'DATE'
+              ? `${dateTotal} for ${targetDate} (${horizonTotal} horizon total)`
+              : `${horizonTotal} conflict-free assigned windows`
+          }
           icon="✅"
           accent="green"
-          badge={optimizationResult ? 'OPTIMIZED' : 'CURRENT'}
+          badge={isOptimized ? 'OPTIMIZED' : 'CURRENT'}
           badgeType="success"
         />
         <StatCard
@@ -103,13 +136,35 @@ export default function Dashboard({
         />
       </div>
 
-      {/* Live 24-Hour Corridor Timeline */}
+      {/* Date Scope Filter Control & Live Corridor Timeline */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+        <div className="segmented-control">
+          <button
+            className={`segmented-tab ${dateScope === 'DATE' ? 'active' : ''}`}
+            onClick={() => setDateScope('DATE')}
+          >
+            📅 Selected Date: {targetDate} ({dateTotal})
+          </button>
+          <button
+            className={`segmented-tab ${dateScope === 'HORIZON' ? 'active' : ''}`}
+            onClick={() => setDateScope('HORIZON')}
+          >
+            🌐 Full Horizon: 7-Day ({horizonTotal})
+          </button>
+        </div>
+        <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+          {dateScope === 'DATE'
+            ? `Displaying ${displayBlocks.length} possessions assigned specifically for ${targetDate}`
+            : `Displaying all ${displayBlocks.length} possessions across the 7-day planning horizon`}
+        </div>
+      </div>
+
       {loading ? (
         <LoadingState message="Synchronizing corridor timetable & block possessions..." />
       ) : (
         <Timeline
-          blocks={optimizationResult?.scheduled_blocks?.length ? optimizationResult.scheduled_blocks : blocks}
-          targetDate={targetDate}
+          blocks={displayBlocks}
+          targetDate={dateScope === 'DATE' ? targetDate : `${targetDate} (Horizon)`}
           onSelectBlock={onSelectBlock}
         />
       )}

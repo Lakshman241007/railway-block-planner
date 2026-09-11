@@ -7,6 +7,7 @@ import EmptyState from './EmptyState';
 export default function OptimizationPanel({
   targetDate,
   onRunOptimization,
+  onResetBaseline,
   isOptimizing,
   optimizationResult,
   optimizationStep = 0, // 0: idle, 1: building, 2: solving, 3: complete
@@ -46,13 +47,25 @@ export default function OptimizationPanel({
             </div>
           </div>
 
-          <button
-            className="btn btn-primary"
-            onClick={handleRun}
-            disabled={isOptimizing}
-          >
-            {isOptimizing ? '⚡ SOLVING CP-SAT...' : '⚡ RUN CP-SAT OPTIMIZATION'}
-          </button>
+          <div style={{ display: 'flex', gap: 10 }}>
+            {onResetBaseline && (
+              <button
+                className="btn btn-secondary"
+                onClick={onResetBaseline}
+                disabled={isOptimizing}
+                title="Reset database back to baseline unoptimized state"
+              >
+                🔄 Reset Baseline
+              </button>
+            )}
+            <button
+              className="btn btn-primary"
+              onClick={handleRun}
+              disabled={isOptimizing}
+            >
+              {isOptimizing ? '⚡ SOLVING CP-SAT...' : '⚡ RUN CP-SAT OPTIMIZATION'}
+            </button>
+          </div>
         </div>
 
         <div className="panel-body">

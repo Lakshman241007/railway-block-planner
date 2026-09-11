@@ -58,6 +58,29 @@ from backend.app.schemas.unified_data import (
 
 logger = logging.getLogger(__name__)
 
+
+def _infer_discipline(
+    asset_type: Optional[str] = None,
+    equipment: Optional[str] = None,
+    location: Optional[str] = None,
+    request_id: Optional[str] = None,
+    reason: Optional[str] = None,
+) -> str:
+    """Infer operational railway discipline for timeline grouping."""
+    combined = f"{asset_type or ''} {equipment or ''} {location or ''} {request_id or ''} {reason or ''}".lower()
+    if any(k in combined for k in ["ohe", "traction", "overhead", "power", "electric"]):
+        return "ohe"
+    if any(k in combined for k in ["sig", "telecom", "signal", "cable"]):
+        return "signal"
+    if any(k in combined for k in ["bridge", "girder", "pamban"]):
+        return "bridge"
+    if any(k in combined for k in ["point", "crossing", "switch"]) and not any(k in combined for k in ["level", "lc", "gate", "boom", "lvl"]):
+        return "points"
+    if any(k in combined for k in ["lc", "level_crossing", "level crossing", "gate", "boom", "lvl"]):
+        return "level_crossing"
+    return "track"
+
+
 # Default configuration path
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent.parent / "config" / "constraints.yaml"
 
@@ -172,6 +195,13 @@ class CP_SAT_Optimizer:
                         if hasattr(m.preferred_start, "strftime")
                         else str(m.preferred_start)
                     )
+                    discipline = _infer_discipline(
+                        asset_type=m.asset_type,
+                        equipment=m.equipment,
+                        location=m.location,
+                        request_id=m.asset_id,
+                        reason=m.maintenance_type,
+                    )
                     active_requests.append({
                         "request_id": m.asset_id,
                         "asset_id": m.asset_id,
@@ -183,6 +213,9 @@ class CP_SAT_Optimizer:
                         "preferred_start": pref_str,
                         "equipment": m.equipment,
                         "required_resources": m.required_resources,
+                        "discipline": discipline,
+                        "block_type": "Maintenance",
+                        "reason": f"{m.maintenance_type} on {m.asset_id}",
                     })
 
         for b in self.block_records:
@@ -193,6 +226,11 @@ class CP_SAT_Optimizer:
                     continue
                 if base_date <= b.requested_date < end_date:
                     dur = _calculate_duration_minutes(b.requested_start, b.requested_end)
+                    discipline = _infer_discipline(
+                        location=b.location,
+                        request_id=b.block_id,
+                        reason=b.reason,
+                    )
                     active_requests.append({
                         "request_id": b.block_id,
                         "asset_id": None,
@@ -204,6 +242,9 @@ class CP_SAT_Optimizer:
                         "preferred_start": b.requested_start,
                         "equipment": None,
                         "required_resources": 1,
+                        "discipline": discipline,
+                        "block_type": b.block_type.value if hasattr(b.block_type, "value") else str(b.block_type),
+                        "reason": b.reason,
                     })
 
         # Sort requests deterministically by priority and duration
@@ -404,6 +445,10 @@ class CP_SAT_Optimizer:
                     fit_score=meta["fit_score"],
                     is_preferred_match=meta["is_preferred_match"],
                     deviation_minutes=dev_mins,
+                    discipline=r_item.get("discipline", "track"),
+                    block_type=r_item.get("block_type", "Maintenance"),
+                    corridor=r_item["location"],
+                    reason=r_item.get("reason"),
                 )
                 scheduled_blocks.append(opt_block)
                 block_out_counter += 1

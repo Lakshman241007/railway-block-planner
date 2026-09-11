@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from backend.app.api.dependencies import get_db
+from backend.app.api.dependencies import get_db, require_operator_role
 from backend.app.database.repositories import MaintenanceRepository
 from backend.app.schemas.unified_data import MaintenanceStatus, Priority
 
@@ -93,6 +93,7 @@ def update_maintenance_record(
     id: str,
     payload: MaintenanceUpdateRequest,
     db: Session = Depends(get_db),
+    _role: str = Depends(require_operator_role),
 ) -> Dict[str, Any]:
     """
     Partially update a maintenance record by its integer primary-key ``id``

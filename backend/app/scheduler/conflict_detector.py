@@ -92,14 +92,43 @@ class ConflictDetector:
 
         if proposed_schedule:
             items: List[Any] = []
-            if hasattr(proposed_schedule, "scheduled_items"):
+            if hasattr(proposed_schedule, "scheduled_blocks"):
+                items = list(proposed_schedule.scheduled_blocks)
+            elif hasattr(proposed_schedule, "scheduled_items"):
                 items = list(proposed_schedule.scheduled_items)
+            elif isinstance(proposed_schedule, dict):
+                items = proposed_schedule.get("scheduled_blocks") or proposed_schedule.get("scheduled_items") or []
             elif isinstance(proposed_schedule, list):
                 items = proposed_schedule
 
             for item in items:
+                # Handle dict representation
+                if isinstance(item, dict):
+                    s_time = item.get("start_time")
+                    s_date = item.get("service_date")
+                    if isinstance(s_date, str):
+                        try:
+                            s_date = date.fromisoformat(s_date)
+                        except Exception:
+                            s_date = c_date
+                    dur = int(item.get("duration_minutes") or 60)
+                    s_min = _parse_time_to_minutes(s_time)
+                    if s_min is not None and s_date:
+                        day_offset = (s_date - c_date).days * 1440
+                        abs_s = day_offset + s_min
+                        abs_e = abs_s + dur
+                        b_id = item.get("block_request_id") or item.get("request_id") or item.get("block_id") or "BLK"
+                        block_windows.append({
+                            "id": b_id,
+                            "type": "OptimizedBlock",
+                            "location": item.get("location", ""),
+                            "start": abs_s,
+                            "end": abs_e,
+                            "priority": item.get("priority", "Medium"),
+                            "equipment": item.get("equipment"),
+                        })
                 # Handle MaintenanceScheduleItem
-                if hasattr(item, "assigned_slot") and item.assigned_slot:
+                elif hasattr(item, "assigned_slot") and item.assigned_slot:
                     slot = item.assigned_slot
                     s_min = _parse_time_to_minutes(slot.start_time)
                     if s_min is not None:
@@ -115,7 +144,7 @@ class ConflictDetector:
                             "priority": item.priority,
                             "equipment": getattr(item, "equipment", None),
                         })
-                # Handle OptimizedBlock
+                # Handle OptimizedBlock object
                 elif hasattr(item, "start_time") and hasattr(item, "service_date"):
                     s_min = _parse_time_to_minutes(item.start_time)
                     if s_min is not None:
@@ -132,8 +161,12 @@ class ConflictDetector:
                             "equipment": getattr(item, "equipment", None),
                         })
 
-        # Also add un-scheduled requested maintenance records
+        scheduled_ids = {w["id"] for w in block_windows}
+
+        # Also add un-scheduled requested maintenance records (skip already scheduled)
         for m in self.maintenance_records:
+            if m.asset_id in scheduled_ids:
+                continue
             if m.maintenance_required:
                 p_start = _parse_time_to_minutes(m.preferred_start)
                 if p_start is not None:
@@ -165,8 +198,10 @@ class ConflictDetector:
                                 "equipment": m.equipment,
                             })
 
-        # Add block records
+        # Add block records (skip already scheduled)
         for b in self.block_records:
+            if b.block_id in scheduled_ids:
+                continue
             if b.status != BlockStatus.CANCELLED:
                 b_start = _parse_time_to_minutes(b.requested_start)
                 if b_start is not None:

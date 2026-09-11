@@ -79,3 +79,14 @@ export async function listOptimizedPlans({ targetDate = null, skip = 0, limit = 
   params.append('limit', limit);
   return apiFetch(`/api/plans/optimized?${params.toString()}`);
 }
+
+/**
+ * Reset database to baseline unoptimized demo state.
+ * @returns {Promise<Object>} Reset confirmation and counts
+ */
+export async function resetOptimizationBaseline() {
+  return apiFetch('/api/plans/reset', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}

@@ -75,3 +75,93 @@ export function parseTimeToMinutes(timeStr) {
   if (parts.length < 2) return 0;
   return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
 }
+
+/**
+ * Infer corridor operational discipline from block attributes.
+ * Checks discipline, equipment, request_id, asset_id, location, and reason.
+ */
+export function inferDiscipline(block) {
+  if (!block) return 'track';
+  if (block.discipline) {
+    const d = String(block.discipline).toLowerCase();
+    const valid = CORRIDOR_DISCIPLINES.find((cd) => cd.id === d);
+    if (valid) return valid.id;
+  }
+
+  const text = `${block.equipment || ''} ${block.location || ''} ${block.request_id || ''} ${block.asset_id || ''} ${block.block_id || ''} ${block.block_type || ''} ${block.maintenance_type || ''} ${block.reason || ''}`.toLowerCase();
+
+  if (text.includes('ohe') || text.includes('traction') || text.includes('overhead') || text.includes('power') || text.includes('electric') || text.includes('ohe-')) {
+    return 'ohe';
+  }
+  if (text.includes('sig') || text.includes('telecom') || text.includes('signal') || text.includes('cable') || text.includes('sig-')) {
+    return 'signal';
+  }
+  if (text.includes('bridge') || text.includes('girder') || text.includes('pamban') || text.includes('brg-')) {
+    return 'bridge';
+  }
+  if ((text.includes('point') || text.includes('crossing') || text.includes('switch') || text.includes('pnt-')) &&
+      !text.includes('level') && !text.includes('lc') && !text.includes('gate') && !text.includes('boom') && !text.includes('lvl')) {
+    return 'points';
+  }
+  if (text.includes('lc') || text.includes('gate') || text.includes('boom') || text.includes('level') || text.includes('lvl') || text.includes('lc-') || text.includes('lvl-')) {
+    return 'level_crossing';
+  }
+  return 'track';
+}
+
+/**
+ * Shared canonical selector for scheduled / operational possessions.
+ * Ensures Dashboard, Schedule, and Timeline derive identical records.
+ */
+export function getCanonicalPossessions({
+  optimizationResult = null,
+  blocks = [],
+  targetDate,
+  dateScope = 'DATE', // 'DATE' | 'HORIZON'
+  priorityFilter = 'ALL',
+  disciplineFilter = 'ALL',
+}) {
+  const isOptimized = Boolean(optimizationResult?.scheduled_blocks?.length);
+  const rawList = isOptimized ? optimizationResult.scheduled_blocks : blocks;
+  const horizonTotal = rawList.length;
+
+  const dateTotal = rawList.filter((b) => {
+    const bDate = b.service_date || b.requested_date;
+    return bDate ? String(bDate) === String(targetDate) : true;
+  }).length;
+
+  const filtered = rawList.filter((b) => {
+    // 1. Date filter (when scope is DATE)
+    if (dateScope === 'DATE' && targetDate) {
+      const bDate = b.service_date || b.requested_date;
+      if (bDate && String(bDate) !== String(targetDate)) {
+        return false;
+      }
+    }
+
+    // 2. Priority filter
+    if (priorityFilter && priorityFilter !== 'ALL') {
+      const bPriority = String(b.priority || '').toLowerCase();
+      if (bPriority !== priorityFilter.toLowerCase()) {
+        return false;
+      }
+    }
+
+    // 3. Discipline filter
+    if (disciplineFilter && disciplineFilter !== 'ALL') {
+      const disc = inferDiscipline(b);
+      if (disc !== disciplineFilter.toLowerCase()) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  return {
+    possessions: filtered,
+    isOptimized,
+    horizonTotal,
+    dateTotal,
+  };
+}

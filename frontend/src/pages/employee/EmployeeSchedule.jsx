@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import PageContainer from '../components/PageContainer';
-import Timeline from '../components/Timeline';
-import PriorityBadge from '../components/PriorityBadge';
-import StatusBadge from '../components/StatusBadge';
-import LoadingState from '../components/LoadingState';
-import ErrorState from '../components/ErrorState';
-import EmptyState from '../components/EmptyState';
-import { getCanonicalPossessions } from '../types';
+import PageContainer from '../../components/PageContainer';
+import Timeline from '../../components/Timeline';
+import PriorityBadge from '../../components/PriorityBadge';
+import StatusBadge from '../../components/StatusBadge';
+import LoadingState from '../../components/LoadingState';
+import ErrorState from '../../components/ErrorState';
+import EmptyState from '../../components/EmptyState';
+import { getCanonicalPossessions } from '../../types';
 
-export default function Schedule({
+export default function EmployeeSchedule({
   blocks = [],
   timetable = [],
   optimizationResult,
@@ -25,7 +25,6 @@ export default function Schedule({
 
   const {
     possessions: displayBlocks,
-    isOptimized,
     horizonTotal,
     dateTotal,
   } = getCanonicalPossessions({
@@ -38,29 +37,42 @@ export default function Schedule({
 
   const filteredTimetable = timetable.filter((tt) => {
     if (!timetableSearch) return true;
-    return (tt.train_id && tt.train_id.toLowerCase().includes(timetableSearch.toLowerCase())) ||
-           (tt.station_code && tt.station_code.toLowerCase().includes(timetableSearch.toLowerCase()));
+    return (
+      (tt.train_id && tt.train_id.toLowerCase().includes(timetableSearch.toLowerCase())) ||
+      (tt.station_code && tt.station_code.toLowerCase().includes(timetableSearch.toLowerCase()))
+    );
   });
 
   return (
     <PageContainer>
+      {/* Employee Awareness Banner */}
+      <div className="employee-info-banner">
+        <div className="employee-banner-icon">📅</div>
+        <div className="employee-banner-content">
+          <div className="employee-banner-title">
+            Master Operational & Possession Schedule (Read-Only)
+          </div>
+          <div className="employee-banner-subtitle">
+            Synchronized Gantt possession timeline and timetable stops for <strong>{targetDate}</strong>. Click any possession to inspect details.
+          </div>
+        </div>
+        <div className="employee-banner-tag">
+          {displayBlocks.length} SLOTS
+        </div>
+      </div>
+
       <div className="panel">
         <div className="panel-header">
           <div>
             <div className="panel-title">
-              <span>📅 Master Operational & Possession Schedule</span>
-              <span className="badge badge-cyan">
-                {displayBlocks.length} POSSESSIONS ({dateScope === 'DATE' ? targetDate : '7-DAY HORIZON'})
+              <span>📅 Master Operational Possession Timeline</span>
+              <span className="badge badge-green">
+                {displayBlocks.length} POSSESSIONS ({dateScope === 'DATE' ? targetDate : 'HORIZON'})
               </span>
-              {dateScope === 'DATE' && horizonTotal > displayBlocks.length && (
-                <span className="badge badge-outline" title={`Full optimization horizon: ${horizonTotal} blocks across all dates`}>
-                  {horizonTotal} TOTAL HORIZON
-                </span>
-              )}
               <span className="badge badge-outline">{timetable.length} TIMETABLE STOPS</span>
             </div>
             <div className="panel-subtitle">
-              Gantt timeline mapping maintenance possessions and scheduled train stops for {targetDate}
+              Visual Gantt diagram mapping track possession windows and scheduled train stops
             </div>
           </div>
 
@@ -97,7 +109,6 @@ export default function Schedule({
                     className="select-control"
                     value={dateScope}
                     onChange={(e) => setDateScope(e.target.value)}
-                    title="Toggle between single-day service date possessions and multi-day horizon"
                   >
                     <option value="DATE">📅 Selected Date: {targetDate} ({dateTotal})</option>
                     <option value="HORIZON">🌐 Entire Planning Horizon ({horizonTotal})</option>
@@ -118,13 +129,8 @@ export default function Schedule({
 
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                   <span className="badge badge-outline">
-                    Showing: {displayBlocks.length} {dateScope === 'DATE' ? `for ${targetDate}` : 'across horizon'}
+                    Showing {displayBlocks.length} {dateScope === 'DATE' ? `for ${targetDate}` : 'across horizon'}
                   </span>
-                  {dateScope === 'DATE' && horizonTotal > displayBlocks.length && (
-                    <span className="badge badge-outline" style={{ color: '#94a3b8' }}>
-                      Horizon total: {horizonTotal}
-                    </span>
-                  )}
                 </div>
               </div>
 
@@ -212,15 +218,15 @@ export default function Schedule({
         <div className="panel">
           <div className="panel-header">
             <div>
-              <div className="panel-title">Possession Slot Breakdown</div>
-              <div className="panel-subtitle">Assigned possession time windows and required gang resources</div>
+              <div className="panel-title">Possession Slot Inspection Breakdown</div>
+              <div className="panel-subtitle">Assigned possession time windows and required gang resources (Click to inspect)</div>
             </div>
           </div>
           <div className="panel-body">
             {displayBlocks.length === 0 ? (
               <EmptyState
                 title="No Possessions Scheduled"
-                message={`No block possessions scheduled for ${targetDate}. Run CP-SAT optimization or adjust filters.`}
+                message={`No block possessions scheduled for ${targetDate}.`}
                 icon="🚧"
               />
             ) : (
@@ -237,6 +243,7 @@ export default function Schedule({
                       <th>Priority</th>
                       <th>Equipment Required</th>
                       <th>Fit Score</th>
+                      <th>Inspection</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -250,7 +257,7 @@ export default function Schedule({
                           className="clickable"
                           onClick={() => onSelectBlock && onSelectBlock(b)}
                         >
-                          <td className="table-cell-mono" style={{ color: '#38bdf8', fontWeight: 700 }}>
+                          <td className="table-cell-mono" style={{ color: '#34d399', fontWeight: 700 }}>
                             {bId} {isOvernight ? '🌙' : ''}
                           </td>
                           <td className="table-cell-highlight">{b.location}</td>
@@ -263,6 +270,11 @@ export default function Schedule({
                           <td>
                             <span className="badge badge-cyan">
                               {b.fit_score != null ? `${(b.fit_score * 100).toFixed(0)}%` : '—'}
+                            </span>
+                          </td>
+                          <td>
+                            <span className="badge badge-outline" style={{ fontSize: '0.68rem' }}>
+                              👁️ Inspect
                             </span>
                           </td>
                         </tr>

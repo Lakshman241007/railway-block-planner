@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
-from backend.app.api.dependencies import get_db
+from backend.app.api.dependencies import get_db, require_operator_role
 from backend.app.database.repositories import BlockRepository
 from backend.app.schemas.unified_data import BlockRecord, BlockStatus, BlockType, Priority
 
@@ -207,6 +207,7 @@ def get_block_by_id(
 def submit_block_request(
     payload: BlockSubmitRequest,
     db: Session = Depends(get_db),
+    _role: str = Depends(require_operator_role),
 ) -> BlockValidationResponse:
     """
     Submit and validate a new block/disconnection request.
@@ -290,6 +291,7 @@ def update_block(
     block_id: str,
     payload: BlockUpdateRequest,
     db: Session = Depends(get_db),
+    _role: str = Depends(require_operator_role),
 ) -> Dict[str, Any]:
     """
     Partially update a block / disconnection record by its block_id.
@@ -346,4 +348,3 @@ def update_block(
 
     updated = repo.update(block_id, update_values)
     return {"data": updated.to_dict()}
-

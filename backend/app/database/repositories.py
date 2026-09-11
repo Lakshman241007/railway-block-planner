@@ -548,6 +548,18 @@ class OptimizedPlanRepository:
             .first()
         )
 
+    def get_latest(self, target_date: Optional[Union[date, str]] = None) -> Optional[OptimizedPlan]:
+        """
+        Fetch the most recently generated optimized plan, optionally filtered by target date.
+        """
+        if target_date is not None:
+            return self.get_latest_by_date(target_date)
+        return (
+            self.db.query(OptimizedPlan)
+            .order_by(OptimizedPlan.created_at.desc(), OptimizedPlan.plan_id.desc())
+            .first()
+        )
+
     def get_all(
         self,
         target_date: Optional[Union[date, str]] = None,

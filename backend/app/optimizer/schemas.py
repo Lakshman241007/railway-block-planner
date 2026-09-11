@@ -164,6 +164,10 @@ class OptimizedBlock(BaseModel):
     fit_score: float = Field(default=1.0, ge=0.0, le=1.0, description="Fit score of assigned slot")
     is_preferred_match: bool = Field(default=True, description="True if scheduled at preferred time")
     deviation_minutes: int = Field(default=0, ge=0, description="Minutes deviated from requested start")
+    discipline: Optional[str] = Field(default=None, description="Discipline identifier (track, signal, bridge, ohe, points, level_crossing)")
+    block_type: Optional[str] = Field(default=None, description="Operational block type (Maintenance, Emergency, etc.)")
+    corridor: Optional[str] = Field(default=None, description="Corridor section name")
+    reason: Optional[str] = Field(default=None, description="Operational work order reason")
 
     model_config = {"str_strip_whitespace": True}
 

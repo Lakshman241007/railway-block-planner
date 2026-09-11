@@ -1,5 +1,5 @@
 import React from 'react';
-import { CORRIDOR_DISCIPLINES, parseTimeToMinutes } from '../types';
+import { CORRIDOR_DISCIPLINES, inferDiscipline, parseTimeToMinutes } from '../types';
 
 const LANE_BLOCK_HEIGHT = 38;
 const LANE_GAP = 5;
@@ -44,20 +44,7 @@ export default function Timeline({
   });
 
   blocks.forEach((block) => {
-    const typeStr = String(block.block_type || block.maintenance_type || block.reason || block.asset_type || '').toLowerCase();
-    let assignedDiscipline = 'track';
-
-    if (typeStr.includes('sig') || typeStr.includes('telecom') || typeStr.includes('cable')) {
-      assignedDiscipline = 'signal';
-    } else if (typeStr.includes('bridge') || typeStr.includes('girder')) {
-      assignedDiscipline = 'bridge';
-    } else if (typeStr.includes('ohe') || typeStr.includes('traction') || typeStr.includes('power') || typeStr.includes('electric')) {
-      assignedDiscipline = 'ohe';
-    } else if (typeStr.includes('point') || typeStr.includes('crossing') || typeStr.includes('switch')) {
-      assignedDiscipline = 'points';
-    } else if (typeStr.includes('lc') || typeStr.includes('gate') || typeStr.includes('level')) {
-      assignedDiscipline = 'level_crossing';
-    }
+    const assignedDiscipline = inferDiscipline(block);
 
     if (!disciplineMap[assignedDiscipline]) {
       disciplineMap[assignedDiscipline] = [];

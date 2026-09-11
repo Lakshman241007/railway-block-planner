@@ -29,10 +29,15 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from backend.app.api.dependencies import get_db
+from backend.app.api.dependencies import get_db, require_operator_role
 from backend.app.block_planner.planner import BlockPlanner
 from backend.app.block_planner.schemas import BlockPlanRequest, BlockPlanResult
-from backend.app.database.repositories import BlockRepository, OptimizedPlanRepository
+from backend.app.database.repositories import (
+    BlockRepository,
+    MaintenanceRepository,
+    OptimizedPlanRepository,
+)
+from backend.app.database.seed import seed_database
 from backend.app.optimizer.schemas import OptimizationRequest, OptimizationResult
 from backend.app.optimizer.validator import validate_final_plan
 
@@ -192,6 +197,7 @@ def get_optimized_plan_by_id(
 def generate_block_plan(
     request: Optional[BlockPlanRequest] = None,
     db: Session = Depends(get_db),
+    _role: str = Depends(require_operator_role),
 ) -> BlockPlanResult:
     """
     Generate an end-to-end maintenance block plan orchestrating:
@@ -217,6 +223,7 @@ def generate_block_plan(
 def optimize_block_plan(
     request: Optional[OptimizationRequest] = None,
     db: Session = Depends(get_db),
+    _role: str = Depends(require_operator_role),
 ) -> OptimizationResult:
     """
     Generate a mathematically optimized maintenance block plan using OR-Tools CP-SAT:
@@ -287,23 +294,42 @@ def optimize_block_plan(
         validation = {"is_valid": None, "error": str(exc)}
 
     # -----------------------------------------------------------------------
-    # Update block statuses: scheduled → Approved
+    # Update block & maintenance records: schedule, times, status
     # -----------------------------------------------------------------------
     from backend.app.optimizer.schemas import OptimizationStatus
     if result.status in (OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE):
         block_repo = BlockRepository(db)
-        scheduled_block_request_ids = {
-            b.block_request_id or b.request_id
-            for b in result.scheduled_blocks
-            if b.block_request_id or b.request_id
-        }
-        for bid in scheduled_block_request_ids:
-            existing = block_repo.get_by_id(bid)
-            if existing and existing.status in ("Requested",):
+        maint_repo = MaintenanceRepository(db)
+
+        for b in result.scheduled_blocks:
+            bid = b.block_request_id or b.request_id
+            if bid:
+                existing = block_repo.get_by_id(bid)
+                if existing:
+                    try:
+                        update_fields: Dict[str, Any] = {"status": "Approved"}
+                        if b.start_time:
+                            update_fields["requested_start"] = b.start_time
+                        if b.end_time:
+                            update_fields["requested_end"] = b.end_time
+                        if b.service_date:
+                            update_fields["requested_date"] = b.service_date
+                        block_repo.update(bid, update_fields)
+                    except Exception as exc:
+                        logger.warning("Could not update block status for '%s': %s", bid, exc)
+
+            if b.asset_id:
                 try:
-                    block_repo.update(bid, {"status": "Approved"})
+                    maint_record = maint_repo.get_by_identifier(b.asset_id)
+                    if maint_record:
+                        maint_update: Dict[str, Any] = {"status": "Approved"}
+                        if b.start_time:
+                            maint_update["preferred_start"] = b.start_time
+                        if b.service_date:
+                            maint_update["requested_date"] = b.service_date
+                        maint_repo.update(maint_record.id, maint_update)
                 except Exception as exc:
-                    logger.warning("Could not update block status for '%s': %s", bid, exc)
+                    logger.warning("Could not update maintenance record for asset '%s': %s", b.asset_id, exc)
 
     # -----------------------------------------------------------------------
     # Persist plan to DB
@@ -333,3 +359,33 @@ def optimize_block_plan(
         logger.error("Failed to persist optimized plan '%s': %s", result.plan_id, exc)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# POST /api/plans/reset — Reset database to unoptimized baseline state
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/reset",
+    summary="Reset database to baseline unoptimized demo state",
+    response_description="Confirmation of baseline reset and updated record counts",
+)
+def reset_baseline(
+    db: Session = Depends(get_db),
+    _role: str = Depends(require_operator_role),
+) -> Dict[str, Any]:
+    """
+    Reset operational database to clean, verified unoptimized baseline state.
+    Purges previous optimization plans and restores original conflicting requests.
+    """
+    try:
+        stats = seed_database(reset=True)
+        return {
+            "status": "success",
+            "message": "Database successfully reset to baseline un-optimized state.",
+            "statistics": stats,
+            "target_date": "2026-09-07",
+        }
+    except Exception as exc:
+        logger.exception("Failed to reset database: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Failed to reset baseline: {str(exc)}")
