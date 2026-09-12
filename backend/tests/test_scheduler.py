@@ -379,3 +379,318 @@ def test_block_planner_facade_end_to_end(
     assert plan.conflict_report is not None
     assert isinstance(plan.resolution_recommendations, list)
 
+
+# ===========================================================================
+# Schedule-Type Horizon Tests (Daily / Weekly / Monthly)
+# ===========================================================================
+
+from backend.app.scheduler.scheduler import _get_horizon_days, _generate_schedule_dates
+from backend.app.scheduler.schemas import ScheduleRequest, ScheduleType
+
+
+def _make_maintenance(asset_id: str, target_date: date) -> MaintenanceRecord:
+    """Helper: create a minimal pending maintenance record for a given date."""
+    return MaintenanceRecord(
+        asset_id=asset_id,
+        asset_type="Track",
+        location="Chennai-Arakkonam",
+        maintenance_type="Preventive",
+        maintenance_required=True,
+        priority=Priority.MEDIUM,
+        duration_minutes=60,
+        requested_date=target_date,
+        preferred_start=time(10, 0),
+        required_resources=2,
+        equipment="Standard Gang",
+        status=MaintenanceStatus.PENDING,
+    )
+
+
+# ── 1. Daily scheduling ────────────────────────────────────────────────────
+
+def test_daily_horizon_is_one_day():
+    """daily schedule_type must produce exactly 1 planning day."""
+    horizon = _get_horizon_days("daily", date(2026, 9, 7))
+    assert horizon == 1
+
+
+def test_daily_schedule_execution():
+    """Daily scheduler returns a ScheduleResult and processes only the requested date."""
+    scheduler = MaintenanceScheduler(
+        maintenance_records=[_make_maintenance("TRK-D1", date(2026, 9, 7))],
+    )
+    result = scheduler.schedule(target_date=date(2026, 9, 7), schedule_type="daily")
+
+    assert isinstance(result, ScheduleResult)
+    assert result.total_requested == 1
+    # Any slot that is assigned must fall on the requested date
+    for item in result.scheduled_items:
+        if item.assigned_slot:
+            assert item.assigned_slot.service_date == date(2026, 9, 7)
+
+
+# ── 2. Weekly scheduling ───────────────────────────────────────────────────
+
+def test_weekly_horizon_is_seven_days():
+    """weekly schedule_type must produce exactly 7 planning days."""
+    horizon = _get_horizon_days("weekly", date(2026, 9, 7))
+    assert horizon == 7
+
+
+def test_weekly_schedule_generates_seven_date_range():
+    """_generate_schedule_dates with horizon=7 covers exactly Mon-Sun."""
+    start = date(2026, 9, 7)
+    dates = _generate_schedule_dates(start, 7)
+    assert len(dates) == 7
+    assert dates[0] == start
+    assert dates[-1] == date(2026, 9, 13)
+
+
+def test_weekly_schedule_can_spread_across_dates():
+    """Weekly scheduler can assign items to any of the 7 days."""
+    # Create 7 tasks, each on a different day of the week
+    start = date(2026, 9, 7)
+    records = [
+        _make_maintenance(f"TRK-W{i}", start + __import__('datetime').timedelta(days=i))
+        for i in range(7)
+    ]
+    scheduler = MaintenanceScheduler(maintenance_records=records)
+    result = scheduler.schedule(target_date=start, schedule_type="weekly")
+
+    assert result.total_requested == 7
+    assert result.total_scheduled >= 1  # At least some must be scheduled
+
+
+# ── 3. Monthly scheduling — general ───────────────────────────────────────
+
+def test_monthly_31_day_month():
+    """Monthly horizon from day 1 of a 31-day month covers all 31 days."""
+    horizon = _get_horizon_days("monthly", date(2026, 10, 1))
+    assert horizon == 31
+
+
+def test_monthly_30_day_month():
+    """Monthly horizon from day 1 of a 30-day month covers all 30 days."""
+    horizon = _get_horizon_days("monthly", date(2026, 9, 1))
+    assert horizon == 30
+
+
+def test_monthly_28_day_february():
+    """Monthly horizon for a non-leap February covers exactly 28 days from day 1."""
+    horizon = _get_horizon_days("monthly", date(2026, 2, 1))
+    assert horizon == 28
+
+
+def test_monthly_29_day_leap_year_february():
+    """Monthly horizon for a leap-year February covers exactly 29 days from day 1."""
+    horizon = _get_horizon_days("monthly", date(2024, 2, 1))
+    assert horizon == 29
+
+
+def test_monthly_mid_month_start():
+    """Starting mid-month produces days remaining in that calendar month."""
+    # September has 30 days; starting on the 16th leaves 15 days (16..30)
+    horizon = _get_horizon_days("monthly", date(2026, 9, 16))
+    assert horizon == 15
+
+
+def test_monthly_last_day_of_month():
+    """Starting on the last day of a month returns exactly 1 day."""
+    horizon = _get_horizon_days("monthly", date(2026, 9, 30))
+    assert horizon == 1
+
+
+def test_monthly_schedule_execution():
+    """Monthly scheduler returns a ScheduleResult for the full calendar month."""
+    start = date(2026, 9, 1)
+    scheduler = MaintenanceScheduler(
+        maintenance_records=[_make_maintenance("TRK-M1", start)],
+    )
+    result = scheduler.schedule(target_date=start, schedule_type="monthly")
+
+    assert isinstance(result, ScheduleResult)
+    assert result.total_requested == 1
+
+
+# ── 4. ScheduleRequest schema validation ──────────────────────────────────
+
+def test_schedule_request_accepts_valid_schedule_type():
+    """ScheduleRequest must accept all three valid schedule_type values."""
+    for stype in ("daily", "weekly", "monthly"):
+        req = ScheduleRequest(target_date=date(2026, 9, 7), schedule_type=stype)
+        assert req.schedule_type == stype
+
+
+def test_schedule_request_rejects_invalid_schedule_type():
+    """ScheduleRequest must reject any schedule_type not in the allowed set."""
+    from pydantic import ValidationError
+
+    for bad in ("Weekly", "DAILY", "week", "month", "biweekly", ""):
+        try:
+            ScheduleRequest(target_date=date(2026, 9, 7), schedule_type=bad)
+            assert False, f"Expected ValidationError for schedule_type={bad!r}"
+        except ValidationError:
+            pass  # Expected
+
+
+def test_schedule_request_defaults_to_daily():
+    """ScheduleRequest without schedule_type must default to 'daily'."""
+    req = ScheduleRequest(target_date=date(2026, 9, 7))
+    assert req.schedule_type == "daily"
+
+
+# ── 5. Conflict detection still works after the changes ───────────────────
+
+def test_conflict_detection_unaffected_by_schedule_type(
+    mock_timetables, mock_block_records
+):
+    """Conflict detector must work correctly regardless of schedule_type changes."""
+    detector = ConflictDetector(
+        timetables=mock_timetables,
+        block_records=mock_block_records,
+    )
+    report = detector.detect_conflicts(target_date=date(2026, 9, 5))
+
+    assert report.is_conflict_free is False
+    assert report.total_conflicts >= 1
+
+
+# ── 6. Invalid schedule_type raises ValueError in scheduler ───────────────
+
+def test_invalid_schedule_type_raises_value_error():
+    """_get_horizon_days must raise ValueError for unrecognised schedule_type."""
+    with pytest.raises(ValueError, match="schedule_type"):
+        _get_horizon_days("biweekly", date(2026, 9, 7))
+
+
+# ===========================================================================
+# Issue 4 — Monthly Horizon: Mid-Month and Year-Boundary Cases
+#
+# The backend computes: last_day_of_month - start_day + 1
+# (i.e. selected date → last calendar day of that month)
+# These tests verify the real date range, not just a hardcoded day count.
+# ===========================================================================
+
+import calendar as _calendar
+from datetime import timedelta as _td
+
+
+def _last_date_of_month(d: date) -> date:
+    """Return the last calendar date of the month containing d."""
+    last_day = _calendar.monthrange(d.year, d.month)[1]
+    return date(d.year, d.month, last_day)
+
+
+# ── A. 30-day month, mid-month (September 12) ─────────────────────────────
+
+def test_monthly_horizon_sep12_remaining_days():
+    """Sep 12 → Sep 30 = 19 days remaining."""
+    start = date(2026, 9, 12)
+    horizon = _get_horizon_days("monthly", start)
+    assert horizon == 19
+
+
+def test_monthly_horizon_sep12_end_date():
+    """The last date of the Sep-12 monthly window must be September 30."""
+    start = date(2026, 9, 12)
+    horizon = _get_horizon_days("monthly", start)
+    dates = _generate_schedule_dates(start, horizon)
+    assert dates[-1] == date(2026, 9, 30)
+    assert dates[0] == start
+
+
+# ── B. 30-day month, mid-month (April 12) ─────────────────────────────────
+
+def test_monthly_horizon_apr12_remaining_days():
+    """Apr 12 → Apr 30 = 19 days remaining."""
+    start = date(2026, 4, 12)
+    horizon = _get_horizon_days("monthly", start)
+    assert horizon == 19
+
+
+def test_monthly_horizon_apr12_end_date():
+    """The last date of the Apr-12 monthly window must be April 30."""
+    start = date(2026, 4, 12)
+    horizon = _get_horizon_days("monthly", start)
+    dates = _generate_schedule_dates(start, horizon)
+    assert dates[-1] == date(2026, 4, 30)
+    assert dates[0] == start
+
+
+# ── C. February 28 (non-leap), mid-month (Feb 10, 2026) ──────────────────
+
+def test_monthly_horizon_feb10_nonleap_remaining_days():
+    """Feb 10 (non-leap 2026) → Feb 28 = 19 days remaining."""
+    start = date(2026, 2, 10)
+    horizon = _get_horizon_days("monthly", start)
+    assert horizon == 19
+
+
+def test_monthly_horizon_feb10_nonleap_end_date():
+    """Last date of Feb-10 (2026) monthly window must be Feb 28."""
+    start = date(2026, 2, 10)
+    horizon = _get_horizon_days("monthly", start)
+    dates = _generate_schedule_dates(start, horizon)
+    assert dates[-1] == date(2026, 2, 28)
+    assert dates[0] == start
+
+
+# ── D. February 29 (leap year 2028), mid-month (Feb 10) ──────────────────
+
+def test_monthly_horizon_feb10_leap_remaining_days():
+    """Feb 10 (leap year 2028) → Feb 29 = 20 days remaining."""
+    start = date(2028, 2, 10)
+    horizon = _get_horizon_days("monthly", start)
+    assert horizon == 20
+
+
+def test_monthly_horizon_feb10_leap_end_date():
+    """Last date of Feb-10 (2028 leap) monthly window must be Feb 29."""
+    start = date(2028, 2, 10)
+    horizon = _get_horizon_days("monthly", start)
+    dates = _generate_schedule_dates(start, horizon)
+    assert dates[-1] == date(2028, 2, 29)
+    assert dates[0] == start
+
+
+# ── E. Year boundary (December 20 → December 31) ─────────────────────────
+
+def test_monthly_horizon_dec20_remaining_days():
+    """Dec 20 → Dec 31 = 12 days remaining."""
+    start = date(2026, 12, 20)
+    horizon = _get_horizon_days("monthly", start)
+    assert horizon == 12
+
+
+def test_monthly_horizon_dec20_end_date():
+    """Last date of Dec-20 monthly window must be December 31."""
+    start = date(2026, 12, 20)
+    horizon = _get_horizon_days("monthly", start)
+    dates = _generate_schedule_dates(start, horizon)
+    assert dates[-1] == date(2026, 12, 31)
+    assert dates[0] == start
+
+
+def test_monthly_end_date_always_matches_calendar_last_day():
+    """
+    Parametric check: for every test start date the last planning date must
+    equal the real last calendar day of that month, regardless of start day.
+    """
+    cases = [
+        date(2026, 9, 12),   # Sep, 30-day
+        date(2026, 4, 12),   # Apr, 30-day
+        date(2026, 2, 10),   # Feb, 28-day (non-leap)
+        date(2028, 2, 10),   # Feb, 29-day (leap)
+        date(2026, 12, 20),  # Dec, 31-day
+        date(2026, 10, 1),   # Oct, 31-day from day 1
+        date(2026, 9, 30),   # Last day of September
+    ]
+    for start in cases:
+        horizon = _get_horizon_days("monthly", start)
+        dates = _generate_schedule_dates(start, horizon)
+        expected_last = _last_date_of_month(start)
+        assert dates[-1] == expected_last, (
+            f"For start={start}: expected last={expected_last}, "
+            f"got {dates[-1]} (horizon={horizon})"
+        )
+        assert dates[0] == start

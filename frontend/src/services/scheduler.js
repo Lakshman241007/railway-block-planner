@@ -26,11 +26,28 @@ export async function detectConflicts(target_date = null, buffer_minutes = 15) {
   });
 }
 
-export async function generateSchedule({ target_date = null, priority_filter = null, location_filter = null, buffer_minutes = 15 } = {}) {
+/**
+ * Generate a maintenance schedule for the given planning horizon.
+ *
+ * @param {object} opts
+ * @param {string|null}  opts.target_date     - ISO date string (YYYY-MM-DD). Defaults to today.
+ * @param {string}       opts.schedule_type   - 'daily' | 'weekly' | 'monthly'. Defaults to 'daily'.
+ * @param {string|null}  opts.priority_filter - Filter by priority label (e.g. 'High').
+ * @param {string|null}  opts.location_filter - Filter by corridor/section substring.
+ * @param {number}       opts.buffer_minutes  - Safety headway buffer in minutes (0–60).
+ */
+export async function generateSchedule({
+  target_date = null,
+  schedule_type = 'daily',
+  priority_filter = null,
+  location_filter = null,
+  buffer_minutes = 15,
+} = {}) {
   return apiFetch('/api/scheduler/schedule', {
     method: 'POST',
     body: JSON.stringify({
       target_date,
+      schedule_type,
       priority_filter,
       location_filter,
       buffer_minutes,

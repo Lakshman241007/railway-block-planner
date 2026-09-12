@@ -466,4 +466,63 @@ def test_patch_maintenance_invalid_status_422(test_client):
     assert "detail" in response.json()
 
 
+# ===========================================================================
+# Schedule-Type API Contract Tests
+# ===========================================================================
 
+def test_scheduler_schedule_accepts_daily(test_client):
+    """POST /api/scheduler/schedule with schedule_type='daily' returns 200."""
+    response = test_client.post(
+        "/api/scheduler/schedule",
+        json={"target_date": "2026-09-05", "buffer_minutes": 15, "schedule_type": "daily"},
+    )
+    assert response.status_code == 200
+    result = response.json()
+    assert "total_requested" in result
+    assert "scheduled_items" in result
+
+
+def test_scheduler_schedule_accepts_weekly(test_client):
+    """POST /api/scheduler/schedule with schedule_type='weekly' returns 200 with 7-day horizon."""
+    response = test_client.post(
+        "/api/scheduler/schedule",
+        json={"target_date": "2026-09-05", "buffer_minutes": 15, "schedule_type": "weekly"},
+    )
+    assert response.status_code == 200
+    result = response.json()
+    assert "total_requested" in result
+    assert "scheduled_items" in result
+
+
+def test_scheduler_schedule_accepts_monthly(test_client):
+    """POST /api/scheduler/schedule with schedule_type='monthly' returns 200."""
+    response = test_client.post(
+        "/api/scheduler/schedule",
+        json={"target_date": "2026-09-01", "buffer_minutes": 15, "schedule_type": "monthly"},
+    )
+    assert response.status_code == 200
+    result = response.json()
+    assert "total_requested" in result
+    assert "scheduled_items" in result
+
+
+def test_scheduler_schedule_rejects_invalid_schedule_type(test_client):
+    """POST /api/scheduler/schedule with invalid schedule_type returns HTTP 422."""
+    response = test_client.post(
+        "/api/scheduler/schedule",
+        json={"target_date": "2026-09-05", "buffer_minutes": 15, "schedule_type": "biweekly"},
+    )
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
+
+def test_scheduler_schedule_defaults_to_daily_when_type_omitted(test_client):
+    """POST /api/scheduler/schedule without schedule_type defaults to daily (backward compat)."""
+    response = test_client.post(
+        "/api/scheduler/schedule",
+        json={"target_date": "2026-09-05", "buffer_minutes": 15},
+    )
+    assert response.status_code == 200
+    result = response.json()
+    assert "total_requested" in result
+    assert "scheduled_items" in result

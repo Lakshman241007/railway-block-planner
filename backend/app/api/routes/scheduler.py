@@ -173,4 +173,5 @@ def generate_schedule(
         target_date=target_d,
         priority_filter=request.priority_filter,
         location_filter=request.location_filter,
+        schedule_type=request.schedule_type,
     )

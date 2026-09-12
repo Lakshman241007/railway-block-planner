@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -128,6 +128,11 @@ class ConflictReport(BaseModel):
     model_config = {"str_strip_whitespace": True}
 
 
+# Canonical schedule-type contract shared between API and scheduler engine.
+# Literal enforces that FastAPI/Pydantic rejects any other string with HTTP 422.
+ScheduleType = Literal["daily", "weekly", "monthly"]
+
+
 class ScheduleRequest(BaseModel):
     """
     Request payload for maintenance scheduling.
@@ -137,3 +142,11 @@ class ScheduleRequest(BaseModel):
     priority_filter: Optional[str] = Field(default=None, description="Filter requests by priority")
     location_filter: Optional[str] = Field(default=None, description="Filter requests by section/location")
     buffer_minutes: int = Field(default=15, ge=0, le=60, description="Safety headway buffer in minutes")
+    schedule_type: ScheduleType = Field(
+        default="daily",
+        description=(
+            "Planning horizon type. "
+            "'daily' = 1 day, 'weekly' = 7 days, "
+            "'monthly' = remaining days in the calendar month."
+        ),
+    )

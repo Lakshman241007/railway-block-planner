@@ -9,6 +9,16 @@ export const Priority = {
   LOW: 'Low',
 };
 
+/**
+ * Schedule type values — must match backend Literal["daily","weekly","monthly"].
+ * Always use these constants when calling generateSchedule().
+ */
+export const ScheduleType = {
+  DAILY: 'daily',
+  WEEKLY: 'weekly',
+  MONTHLY: 'monthly',
+};
+
 export const BlockStatus = {
   REQUESTED: 'Requested',
   APPROVED: 'Approved',
