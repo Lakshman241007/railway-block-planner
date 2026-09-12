@@ -7,7 +7,7 @@ active track movements, and goods train forecasts.
 """
 
 from __future__ import annotations
-
+import calendar
 from datetime import date, datetime, time, timedelta, timezone
 import logging
 from typing import Dict, List, Optional, Set, Tuple, Union
@@ -92,6 +92,49 @@ def _format_minutes_to_time(minutes: int) -> str:
     h = norm // 60
     m = norm % 60
     return f"{h:02d}:{m:02d}"
+
+
+def _get_horizon_days(
+    schedule_type: str,
+    start_date: date,
+) -> int:
+    """
+    Return the scheduling horizon in days.
+
+    daily   -> selected date only
+    weekly  -> selected date + next 6 days
+    monthly -> selected date through the last day of that month
+    """
+    schedule_type = schedule_type.lower().strip()
+
+    if schedule_type == "daily":
+        return 1
+
+    if schedule_type == "weekly":
+        return 7
+
+    if schedule_type == "monthly":
+        last_day = calendar.monthrange(
+            start_date.year,
+            start_date.month,
+        )[1]
+
+        return last_day - start_date.day + 1
+
+    raise ValueError(
+        "schedule_type must be 'daily', 'weekly', or 'monthly'"
+    )
+
+
+def _generate_schedule_dates(
+    start_date: date,
+    horizon_days: int,
+) -> List[date]:
+    """Generate all dates included in the scheduling horizon."""
+    return [
+        start_date + timedelta(days=offset)
+        for offset in range(horizon_days)
+    ]
 
 
 def _locations_match(loc1: str, loc2: str) -> bool:
@@ -342,17 +385,23 @@ class MaintenanceScheduler:
         target_date: Optional[date] = None,
         priority_filter: Optional[str] = None,
         location_filter: Optional[str] = None,
+        schedule_type: str = "daily"
     ) -> ScheduleResult:
         """
         Generate full schedule assignments for all active maintenance and block requests.
         """
         s_date = target_date or date.today()
 
+        # Determine scheduling horizon
+        horizon_days = _get_horizon_days(schedule_type=schedule_type, start_date=s_date)
+        schedule_dates = _generate_schedule_dates(start_date=s_date, horizon_days=horizon_days)
+        schedule_date_set = set(schedule_dates)
+
         # Combine maintenance records and block records for scheduling
         requests_to_schedule = []
 
         for m in self.maintenance_records:
-            if m.requested_date == s_date and m.maintenance_required:
+            if (m.requested_date in schedule_date_set and m.maintenance_required):
                 if priority_filter and m.priority.value.lower() != priority_filter.lower():
                     continue
                 if location_filter and location_filter.lower() not in m.location.lower():
@@ -371,10 +420,11 @@ class MaintenanceScheduler:
                     "priority": m.priority,
                     "duration": m.duration_minutes,
                     "preferred_start": pref_str,
+                    "requested_date": m.requested_date
                 })
 
         for b in self.block_records:
-            if b.requested_date == s_date and b.status != BlockStatus.CANCELLED:
+            if (b.requested_date in schedule_date_set and b.status != BlockStatus.CANCELLED):
                 if priority_filter and b.priority.value.lower() != priority_filter.lower():
                     continue
                 if location_filter and location_filter.lower() not in b.location.lower():
@@ -389,6 +439,7 @@ class MaintenanceScheduler:
                     "priority": b.priority,
                     "duration": dur,
                     "preferred_start": b.requested_start,
+                    "requested_date": b.requested_date
                 })
 
 
@@ -406,29 +457,97 @@ class MaintenanceScheduler:
         unfeasible_items: List[MaintenanceScheduleItem] = []
         sched_counter = 1
 
-        # Dynamic reservation list to prevent simultaneous double-booking during heuristic scheduling: (start, end, desc, location)
-        dynamic_occupied: List[Tuple[int, int, str, str]] = []
-
+        # Track maintenance assignments made during this scheduling run.
+        # This prevents multiple new requests from being assigned to the exact same time window.
+            
+        assigned_intervals: List[Tuple[date, str, int, int, str]] = []
+            
         for req in requests_to_schedule:
-            # Collect dynamic reservations from earlier scheduled requests on matching locations
-            add_occ = [
-                (s, e, desc)
-                for s, e, desc, loc in dynamic_occupied
-                if _locations_match(loc, req["location"])
-            ]
+            candidate_slots: List[FeasibleSlot] = []
 
-            slots = self.find_feasible_slots(
-                location=req["location"],
-                duration_minutes=req["duration"],
-                preferred_start=req["preferred_start"],
-                target_date=s_date,
-                additional_occupancy=add_occ,
-            )
+            # Prefer the originally requested date first.
+            candidate_dates = sorted(
+                schedule_dates,
+                key=lambda d: (
+                    0 if d == req["requested_date"] else 1,
+                    abs((d - req["requested_date"]).days),
+                    ),
+                )
 
-            if slots:
-                primary = slots[0]
-                alts = slots[1:]
-                status = "Scheduled" if primary.is_preferred_match else "AlternativeSuggested"
+            for candidate_date in candidate_dates:
+                slots = self.find_feasible_slots(
+                    location=req["location"],
+                    duration_minutes=req["duration"],
+                    preferred_start=req["preferred_start"],
+                    target_date=candidate_date,
+                    max_slots=5
+                    )
+
+                for slot in slots:
+                    slot_start = _parse_time_to_minutes(slot.start_time)
+                    slot_end = slot_start + slot.duration_minutes
+
+                    # Check against tasks already assigned by this scheduler run.
+                    has_internal_conflict = False
+
+                    for (assigned_date, assigned_location, assigned_start, assigned_end,_,) in assigned_intervals:
+
+                        if assigned_date != candidate_date:
+                            continue
+
+                        if not _locations_match(
+                            assigned_location,
+                            req["location"],
+                        ):
+                            continue
+
+                        # Interval overlap check
+                        if (
+                            slot_start < assigned_end
+                            and slot_end > assigned_start
+                        ):
+                            has_internal_conflict = True
+                            break
+
+                    if not has_internal_conflict:
+                        candidate_slots.append(slot)
+
+            # Select the best candidate.
+            if candidate_slots:
+                primary = max(
+                    candidate_slots,
+                    key=lambda slot: (
+                        slot.fit_score,
+                        -abs(
+                            (
+                                _parse_time_to_minutes(slot.start_time)
+                                or 0
+                            )
+                            - (
+                                _parse_time_to_minutes(
+                                    req["preferred_start"]
+                                )
+                                or 600
+                            )
+                        ),
+                    ),
+                )
+
+                alts = [
+                    slot
+                    for slot in candidate_slots
+                    if slot != primary
+                ][:5]
+
+                status = (
+                    "Scheduled"
+                    if (
+                        primary.service_date == req["requested_date"]
+                        and primary.is_preferred_match
+                    )
+                    else "AlternativeSuggested"
+                )
+
                 item = MaintenanceScheduleItem(
                     schedule_id=f"SCHED-{sched_counter:04d}",
                     request_id=req["id"],
@@ -441,14 +560,34 @@ class MaintenanceScheduler:
                     assigned_slot=primary,
                     alternative_slots=alts,
                     status=status,
-                    notes="Feasible window identified without timetable conflicts.",
+                    notes=(
+                        "Feasible window identified within the "
+                        f"{schedule_type} scheduling horizon."
+                    ),
                 )
+
                 scheduled_items.append(item)
 
-                # Dynamically reserve this assigned slot so subsequent lower-priority requests on the same section do not collide
-                s_start = _parse_time_to_minutes(primary.start_time) or 0
-                s_end = s_start + req["duration"]
-                dynamic_occupied.append((s_start, s_end, f"Scheduled Block {req['id']}", req["location"]))
+                # Reserve the selected slot for later requests.
+                assigned_start = _parse_time_to_minutes(
+                    primary.start_time
+                ) or 0
+
+                assigned_end = (
+                    assigned_start
+                    + primary.duration_minutes)
+
+                assigned_intervals.append(
+                    (
+                        primary.service_date,
+                        req["location"],
+                        assigned_start,
+                        assigned_end,
+                        req["id"],
+                    )
+                )
+
+                
             else:
                 item = MaintenanceScheduleItem(
                     schedule_id=f"SCHED-{sched_counter:04d}",
@@ -462,11 +601,17 @@ class MaintenanceScheduler:
                     assigned_slot=None,
                     alternative_slots=[],
                     status="Unfeasible",
-                    notes="No conflict-free time window of sufficient duration available on requested date.",
+                    notes=(
+                        "No conflict-free time window of sufficient "
+                        f"duration available within the {schedule_type} "
+                        "scheduling horizon."
+                    ),
                 )
+
                 unfeasible_items.append(item)
 
             sched_counter += 1
+
 
         return ScheduleResult(
             generated_at=datetime.now(timezone.utc).isoformat(),
