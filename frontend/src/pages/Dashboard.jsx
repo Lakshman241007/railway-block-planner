@@ -170,7 +170,7 @@ export default function Dashboard({
       )}
 
       {/* Two-Column Operational Summary: Active Conflicts & Goods Forecasts */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 16 }}>
+      <div className="dashboard-two-col-grid">
         {/* Conflicts Alert Section */}
         <div className="panel">
           <div className="panel-header">

@@ -64,18 +64,18 @@ export default function Timeline({
             Multi-discipline track possession timeline with continuous overnight block visualization
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: '0.72rem', color: '#94a3b8' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ width: 8, height: 8, background: '#ef4444', borderRadius: 2 }} /> Critical
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', fontSize: '0.72rem', color: '#94a3b8' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 9, height: 9, background: '#ef4444', borderRadius: 2 }} /> Critical
           </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ width: 8, height: 8, background: '#f97316', borderRadius: 2 }} /> High
+          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 9, height: 9, background: '#f97316', borderRadius: 2 }} /> High
           </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ width: 8, height: 8, background: '#eab308', borderRadius: 2 }} /> Medium
+          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 9, height: 9, background: '#eab308', borderRadius: 2 }} /> Medium
           </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ width: 8, height: 8, background: '#10b981', borderRadius: 2 }} /> Low
+          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 9, height: 9, background: '#10b981', borderRadius: 2 }} /> Low
           </span>
         </div>
       </div>

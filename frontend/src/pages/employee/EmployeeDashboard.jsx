@@ -6,6 +6,7 @@ import ConflictCard from '../../components/ConflictCard';
 import ForecastCard from '../../components/ForecastCard';
 import PriorityBadge from '../../components/PriorityBadge';
 import StatusBadge from '../../components/StatusBadge';
+import TrainStatusBadge from '../../components/TrainStatusBadge';
 import EmptyState from '../../components/EmptyState';
 import { getCanonicalPossessions } from '../../types';
 
@@ -214,7 +215,7 @@ export default function EmployeeDashboard({
       </div>
 
       {/* Two Column Grid: Train Traffic & Maintenance Status */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))', gap: 20 }}>
+      <div className="dashboard-two-col-grid">
         {/* 2. Train Traffic */}
         <div className="panel">
           <div className="panel-header">
@@ -248,13 +249,13 @@ export default function EmployeeDashboard({
                     <tr key={t.train_id + idx}>
                       <td className="table-cell-mono" style={{ fontWeight: 700, color: '#38bdf8' }}>{t.train_id}</td>
                       <td className="table-cell-highlight">{t.origin} → {t.destination}</td>
-                      <td className="table-cell-mono" style={{ color: '#34d399' }}>{t.departure_time || '--:--'}</td>
+                      <td className="table-cell-mono" style={{ color: '#34d399' }}>{t.scheduled_departure || '--:--'}</td>
                       <td>
                         <span className={`badge ${String(t.train_type || '').toLowerCase().includes('goods') ? 'badge-warning' : 'badge-cyan'}`}>
                           {t.train_type || 'Passenger'}
                         </span>
                       </td>
-                      <td><span className="badge badge-green">ON SCHEDULE</span></td>
+                      <td><TrainStatusBadge train={t} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -311,7 +312,7 @@ export default function EmployeeDashboard({
       </div>
 
       {/* Two Column Grid: Current Conflicts & Goods Freight Forecast */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))', gap: 20 }}>
+      <div className="dashboard-two-col-grid">
         {/* 4. Current Conflicts (Read-Only Inspection) */}
         <div className="panel">
           <div className="panel-header">

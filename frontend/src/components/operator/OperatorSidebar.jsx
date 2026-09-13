@@ -9,6 +9,9 @@ export default function OperatorSidebar({
   conflictCount = 0,
   forecastCount = 0,
   pendingBlockCount = 0,
+  mobileOpen = false,
+  onCloseMobile,
+  collapsed = false,
 }) {
   const { switchRole } = useAuth();
 
@@ -24,6 +27,7 @@ export default function OperatorSidebar({
   ];
 
   const handleItemClick = (item) => {
+    if (onCloseMobile) onCloseMobile();
     if (onNavigate) {
       onNavigate(item.id, item.path);
     } else {
@@ -32,7 +36,7 @@ export default function OperatorSidebar({
   };
 
   return (
-    <aside className="sidebar operator-sidebar">
+    <aside className={`sidebar operator-sidebar ${mobileOpen ? 'mobile-open' : ''} ${collapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-header">
         <div className="brand-icon" style={{ background: '#0284c7' }}>🚆</div>
         <div className="brand-info">
@@ -47,7 +51,7 @@ export default function OperatorSidebar({
 
       <div className="sidebar-role-indicator operator-theme">
         <div className="role-indicator-badge">
-          <span className="pulse-dot active" />
+          <span className="dot online" />
           <span>CHIEF CONTROLLER (FULL ACCESS)</span>
         </div>
       </div>
@@ -60,6 +64,7 @@ export default function OperatorSidebar({
             id={`operator-nav-${item.id}`}
             className={`nav-item ${activePage === item.id ? 'active' : ''}`}
             onClick={() => handleItemClick(item)}
+            title={item.label}
           >
             <span className="nav-item-icon">{item.icon}</span>
             <span>{item.label}</span>
@@ -74,13 +79,16 @@ export default function OperatorSidebar({
         {/* Role Switcher Button */}
         <button
           className="role-switch-sidebar-btn employee-alt"
-          onClick={switchRole}
+          onClick={() => {
+            if (onCloseMobile) onCloseMobile();
+            switchRole();
+          }}
           title="Switch view to Employee Operations Monitor"
         >
           <span className="switch-icon">🔄</span>
           <div style={{ textAlign: 'left' }}>
-            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#e2e8f0' }}>Switch Role</div>
-            <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>To Employee Monitor</div>
+            <div style={{ fontSize: '0.74rem', fontWeight: 600, color: '#e2e8f0' }}>Switch Role</div>
+            <div style={{ fontSize: '0.66rem', color: '#94a3b8' }}>To Employee Monitor</div>
           </div>
         </button>
 
@@ -97,7 +105,7 @@ export default function OperatorSidebar({
               <span className={`dot ${isOnline ? 'online' : 'offline'}`} />
               OR-Tools CP-SAT
             </span>
-            <span style={{ fontSize: '0.68rem', color: '#38bdf8' }}>Enabled</span>
+            <span style={{ fontSize: '0.68rem', color: '#38bdf8', fontWeight: 600 }}>Enabled</span>
           </div>
         </div>
       </div>

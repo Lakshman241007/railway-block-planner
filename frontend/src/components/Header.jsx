@@ -11,12 +11,41 @@ export default function Header({
   onResetBaseline,
   isOptimizing = false,
   onRefresh,
+  onToggleMobileMenu,
+  isMobileMenuOpen = false,
+  onToggleSidebar,
+  sidebarCollapsed = false,
 }) {
   const { role, profile, isOperator, isEmployee, switchRole } = useAuth();
 
   return (
     <header className={`top-header ${isEmployee ? 'employee-top-header' : 'operator-top-header'}`}>
       <div className="header-left">
+        {/* Mobile menu toggle hamburger */}
+        <button
+          type="button"
+          className="btn-mobile-toggle"
+          id="btn-mobile-menu-toggle"
+          onClick={onToggleMobileMenu}
+          title={isMobileMenuOpen ? "Close menu" : "Open navigation menu"}
+          aria-label="Toggle navigation menu"
+        >
+          {isMobileMenuOpen ? '✕' : '☰'}
+        </button>
+
+        {/* Desktop Sidebar Collapse Toggle */}
+        {onToggleSidebar && (
+          <button
+            type="button"
+            className="btn btn-secondary btn-icon-only btn-xs btn-sidebar-collapse"
+            onClick={onToggleSidebar}
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={sidebarCollapsed ? "Expand sidebar (full view)" : "Collapse sidebar (compact view)"}
+          >
+            {sidebarCollapsed ? '▶' : '◀'}
+          </button>
+        )}
+
         <h2 className="header-page-title">
           {pageTitle}
           <span className={`header-page-tag ${isEmployee ? 'employee-tag' : ''}`}>
@@ -59,7 +88,6 @@ export default function Header({
             onClick={onResetBaseline}
             title="Reset operational data back to baseline unoptimized demo state (15 conflicts)"
             id="header-reset-baseline-btn"
-            style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem' }}
           >
             🔄 RESET DEMO
           </button>
@@ -122,4 +150,3 @@ export default function Header({
     </header>
   );
 }
-

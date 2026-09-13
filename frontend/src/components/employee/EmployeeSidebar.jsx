@@ -8,6 +8,9 @@ export default function EmployeeSidebar({
   isOnline = true,
   conflictCount = 0,
   forecastCount = 0,
+  mobileOpen = false,
+  onCloseMobile,
+  collapsed = false,
 }) {
   const { switchRole } = useAuth();
 
@@ -23,6 +26,7 @@ export default function EmployeeSidebar({
   ];
 
   const handleItemClick = (item) => {
+    if (onCloseMobile) onCloseMobile();
     if (onNavigate) {
       onNavigate(item.id, item.path);
     } else {
@@ -31,7 +35,7 @@ export default function EmployeeSidebar({
   };
 
   return (
-    <aside className="sidebar employee-sidebar">
+    <aside className={`sidebar employee-sidebar ${mobileOpen ? 'mobile-open' : ''} ${collapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-header">
         <div className="brand-icon" style={{ background: '#059669' }}>🚆</div>
         <div className="brand-info">
@@ -46,7 +50,7 @@ export default function EmployeeSidebar({
 
       <div className="sidebar-role-indicator employee-theme">
         <div className="role-indicator-badge">
-          <span className="read-only-badge-icon">👁️</span>
+          <span className="dot online" />
           <span>MONITORING ONLY (READ-ONLY)</span>
         </div>
       </div>
@@ -59,6 +63,7 @@ export default function EmployeeSidebar({
             id={`employee-nav-${item.id}`}
             className={`nav-item ${activePage === item.id ? 'active' : ''}`}
             onClick={() => handleItemClick(item)}
+            title={item.label}
           >
             <span className="nav-item-icon">{item.icon}</span>
             <span>{item.label}</span>
@@ -73,13 +78,16 @@ export default function EmployeeSidebar({
         {/* Role Switcher Button */}
         <button
           className="role-switch-sidebar-btn operator-alt"
-          onClick={switchRole}
+          onClick={() => {
+            if (onCloseMobile) onCloseMobile();
+            switchRole();
+          }}
           title="Switch view to Operator Control Center"
         >
           <span className="switch-icon">🔄</span>
           <div style={{ textAlign: 'left' }}>
-            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#e2e8f0' }}>Switch Role</div>
-            <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>To Operator Controls</div>
+            <div style={{ fontSize: '0.74rem', fontWeight: 600, color: '#e2e8f0' }}>Switch Role</div>
+            <div style={{ fontSize: '0.66rem', color: '#94a3b8' }}>To Operator Controls</div>
           </div>
         </button>
 
@@ -98,7 +106,7 @@ export default function EmployeeSidebar({
               <span className="dot online" />
               Permissions
             </span>
-            <span style={{ fontSize: '0.68rem', color: '#10b981' }}>Strict Read-Only</span>
+            <span style={{ fontSize: '0.68rem', color: '#10b981', fontWeight: 600 }}>Strict Read-Only</span>
           </div>
         </div>
       </div>

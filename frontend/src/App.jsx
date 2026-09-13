@@ -55,6 +55,8 @@ function AppContent() {
   const [targetDate, setTargetDate] = useState('2026-09-07');
   const [isOnline, setIsOnline] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Core Railway Telemetry State (shared single source of truth)
   const [blocks, setBlocks] = useState([]);
@@ -393,23 +395,42 @@ function AppContent() {
 
   return (
     <div className="app-shell">
+      {/* Mobile Drawer Backdrop */}
+      <div
+        className={`sidebar-backdrop ${mobileNavOpen ? 'active' : ''}`}
+        onClick={() => setMobileNavOpen(false)}
+        aria-hidden="true"
+      />
+
       {/* Role-Specific Persistent Sidebar */}
       {isOperator ? (
         <OperatorSidebar
           activePage={activePageKey}
-          onNavigate={handlePageNavigate}
+          onNavigate={(pageId, customPath) => {
+            setMobileNavOpen(false);
+            handlePageNavigate(pageId, customPath);
+          }}
           isOnline={isOnline}
           conflictCount={conflicts.length}
           forecastCount={forecasts.length}
           pendingBlockCount={blocks.filter((b) => (b.status || '').toLowerCase() === 'requested').length}
+          mobileOpen={mobileNavOpen}
+          onCloseMobile={() => setMobileNavOpen(false)}
+          collapsed={sidebarCollapsed}
         />
       ) : (
         <EmployeeSidebar
           activePage={activePageKey}
-          onNavigate={handlePageNavigate}
+          onNavigate={(pageId, customPath) => {
+            setMobileNavOpen(false);
+            handlePageNavigate(pageId, customPath);
+          }}
           isOnline={isOnline}
           conflictCount={conflicts.length}
           forecastCount={forecasts.length}
+          mobileOpen={mobileNavOpen}
+          onCloseMobile={() => setMobileNavOpen(false)}
+          collapsed={sidebarCollapsed}
         />
       )}
 
@@ -425,6 +446,10 @@ function AppContent() {
           onResetBaseline={isOperator ? handleResetBaseline : null}
           isOptimizing={isOptimizing}
           onRefresh={fetchAllData}
+          onToggleMobileMenu={() => setMobileNavOpen((prev) => !prev)}
+          isMobileMenuOpen={mobileNavOpen}
+          onToggleSidebar={() => setSidebarCollapsed((prev) => !prev)}
+          sidebarCollapsed={sidebarCollapsed}
         />
 
         <main className="main-content">
@@ -443,7 +468,7 @@ function AppContent() {
                   onRunForecast={handleRunForecast}
                   isForecasting={isForecasting}
                   blocks={blocks}
-                  maintenance={maintenance}
+                  maintenanceRecords={maintenance}
                   conflicts={conflicts}
                   forecasts={forecasts}
                   trains={trains}
@@ -546,7 +571,7 @@ function AppContent() {
                   targetDate={targetDate}
                   optimizationResult={optimizationResult}
                   blocks={blocks}
-                  maintenance={maintenance}
+                  maintenanceRecords={maintenance}
                   conflicts={conflicts}
                   forecasts={forecasts}
                   trains={trains}

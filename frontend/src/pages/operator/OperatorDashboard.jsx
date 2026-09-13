@@ -6,6 +6,7 @@ import ConflictCard from '../../components/ConflictCard';
 import ForecastCard from '../../components/ForecastCard';
 import PriorityBadge from '../../components/PriorityBadge';
 import StatusBadge from '../../components/StatusBadge';
+import TrainStatusBadge from '../../components/TrainStatusBadge';
 import EmptyState from '../../components/EmptyState';
 import { getCanonicalPossessions } from '../../types';
 
@@ -325,7 +326,7 @@ export default function OperatorDashboard({
       </div>
 
       {/* Two Column Grid: Conflicts & Optimization Status */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))', gap: 20 }}>
+      <div className="dashboard-two-col-grid">
         {/* 2. Conflict Panel */}
         <div className="panel">
           <div className="panel-header">
@@ -447,7 +448,7 @@ export default function OperatorDashboard({
       </div>
 
       {/* Two Column Grid: Train Traffic & Goods Forecast */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))', gap: 20 }}>
+      <div className="dashboard-two-col-grid">
         {/* 3. Train Traffic Summary */}
         <div className="panel">
           <div className="panel-header">
@@ -488,8 +489,8 @@ export default function OperatorDashboard({
                       </td>
                       <td className="table-cell-highlight">{t.origin}</td>
                       <td className="table-cell-highlight">{t.destination}</td>
-                      <td className="table-cell-mono" style={{ color: '#34d399' }}>{t.departure_time || '--:--'}</td>
-                      <td><span className="badge badge-green">ON TIME</span></td>
+                      <td className="table-cell-mono" style={{ color: '#34d399' }}>{t.scheduled_departure || '--:--'}</td>
+                      <td><TrainStatusBadge train={t} /></td>
                     </tr>
                   ))}
                 </tbody>

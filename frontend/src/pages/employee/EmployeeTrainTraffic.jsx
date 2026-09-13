@@ -189,7 +189,7 @@ export default function EmployeeTrainTraffic({
                         </td>
                         <td className="table-cell-highlight">{t.origin}</td>
                         <td className="table-cell-highlight">{t.destination}</td>
-                        <td className="table-cell-mono" style={{ color: '#34d399' }}>{t.departure_time || '--:--'}</td>
+                        <td className="table-cell-mono" style={{ color: '#34d399' }}>{t.scheduled_departure || '--:--'}</td>
                         <td className="table-cell-mono" style={{ color: '#34d399' }}>{t.arrival_time || '--:--'}</td>
                         <td className="table-cell-mono">{t.max_speed || 110} km/h</td>
                         <td className="table-cell-mono">{t.length_meters ? `${t.length_meters}m` : '24 Coaches'}</td>
