@@ -161,7 +161,21 @@ class OptimizationRequest(BaseModel):
         description="Solver trade-off preset: 'balanced' | 'max_throughput' | 'minimal_disruption' | 'safety_priority'",
     )
 
-    model_config = {"str_strip_whitespace": True}
+    # --- Daily Scheduler Integration (Phase 4) ---
+    candidate_works: Optional[List[Any]] = Field(
+        default=None,
+        description="Candidate maintenance work items from DailySchedulingProblem",
+    )
+    candidate_matches: Optional[List[Any]] = Field(
+        default=None,
+        description="Candidate work-to-window pairings from WorkMatchReport",
+    )
+    available_windows: Optional[List[Any]] = Field(
+        default=None,
+        description="Audited corridor availability windows from DailyAvailabilityReport",
+    )
+
+    model_config = {"str_strip_whitespace": True, "extra": "allow"}
 
 
 class OptimizedBlock(BaseModel):

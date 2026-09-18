@@ -895,7 +895,7 @@ class MaintenanceScheduler:
         """
         Transform prepared daily scheduling problem and match report into canonical OptimizationRequest.
         Transfers candidate constraints, mandatory status, pinned slots, priorities, and capacities.
-        Does NOT invoke CP-SAT solver.
+        Transfers candidate works and successful work-block pairings for downstream CP-SAT optimization.
         """
         mandatory_ids = [w.work_id for w in problem.candidate_works if w.is_mandatory]
         pinned = {w.work_id: w.pinned_slot for w in problem.candidate_works if w.is_pinned and w.pinned_slot}
@@ -916,6 +916,8 @@ class MaintenanceScheduler:
             for corr, stats in availability_report.corridor_capacities.items():
                 capacities[f"cap_{corr}"] = stats.get("usable_minutes", 0)
 
+        windows_list = availability_report.available_windows if availability_report else problem.available_windows
+
         return OptimizationRequest(
             target_date=problem.target_date,
             horizon_days=1,
@@ -927,16 +929,21 @@ class MaintenanceScheduler:
             include_forecast=bool(problem.goods_train_forecast_windows),
             max_slots_per_request=5,
             strategy_preset="balanced",
+            candidate_works=problem.candidate_works,
+            candidate_matches=match_report.successful_matches,
+            available_windows=windows_list,
         )
 
     def schedule_daily(
         self,
         problem: DailySchedulingProblem,
+        invoke_solver: bool = True,
+        optimizer: Optional[Any] = None,
     ) -> DailyScheduleResult:
         """
-        Orchestrate daily scheduling preparation pipeline:
-        DailySchedulingProblem → determine_daily_availability → match_work_to_blocks → build_cpsat_input.
-        Produces DailyScheduleResult ready for Phase 4 CP-SAT solver.
+        Orchestrate daily scheduling preparation and CP-SAT mathematical optimization:
+        DailySchedulingProblem → determine_daily_availability → match_work_to_blocks → build_cpsat_input → CP_SAT_Optimizer.
+        Produces full DailyScheduleResult with scheduled assignments, diagnostics, and solver statistics.
         """
         # Step 1: Availability Audit
         avail_report = self.determine_daily_availability(problem)
@@ -949,30 +956,130 @@ class MaintenanceScheduler:
 
         plan_id = f"DSCHED-{problem.target_date.strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
+        # If solver invocation is disabled (pre-solver inspection / diagnostic mode)
+        if not invoke_solver:
+            return DailyScheduleResult(
+                plan_id=plan_id,
+                target_date=problem.target_date,
+                generated_at=datetime.now(timezone.utc).isoformat(),
+                total_scheduled=0,
+                total_unscheduled=match_report.total_rejected,
+                scheduled_works=[m.model_dump() for m in match_report.successful_matches],
+                optimized_block_assignments=[],
+                unscheduled_works=[],
+                diagnostics={
+                    "total_windows_audited": len(avail_report.available_windows),
+                    "rejection_summary": match_report.rejection_summary,
+                    "corridor_capacities": avail_report.corridor_capacities,
+                },
+                matching_statistics={
+                    "total_works": match_report.total_works,
+                    "total_matches": match_report.total_matches,
+                    "total_rejected": match_report.total_rejected,
+                    "rejection_summary": match_report.rejection_summary,
+                },
+                optimization_metadata={
+                    "optimization_request": opt_req.model_dump(),
+                    "status": "PreparedForOptimization",
+                },
+            )
+
+        # Step 4: Invoke CP-SAT Optimizer (Phase 4 Integration)
+        from backend.app.optimizer.cp_sat_optimizer import CP_SAT_Optimizer
+        from backend.app.optimizer.schemas import OptimizationStatus
+
+        if optimizer is None:
+            optimizer = CP_SAT_Optimizer(
+                maintenance_records=self.maintenance_records,
+                block_records=self.block_records,
+                timetables=self.timetables,
+                goods_forecasts=self.goods_forecasts,
+                movements=self.movements,
+                trains=getattr(self, "trains", None),
+            )
+
+        opt_res = optimizer.optimize(request=opt_req)
+
+        # Build categorized unscheduled works preserving matching vs solver diagnostics
+        combined_unscheduled: List[Dict[str, Any]] = []
+
+        # 1. Pre-solver matching rejections (no compatible window exists)
+        for r_work in match_report.rejected_works:
+            combined_unscheduled.append({
+                "request_id": r_work.get("work_id"),
+                "work_id": r_work.get("work_id"),
+                "location": r_work.get("location"),
+                "corridor": r_work.get("corridor"),
+                "priority": r_work.get("priority"),
+                "duration_minutes": r_work.get("duration_minutes"),
+                "source": "PreSolverMatching",
+                "reason": f"No compatible block exists: {', '.join(r_work.get('reasons', []))}",
+                "rejection_reasons": r_work.get("reasons", []),
+            })
+
+        # 2. Solver unscheduled blocks (had candidate slots, but CP-SAT did not select)
+        for un_b in opt_res.unscheduled_blocks:
+            combined_unscheduled.append({
+                "request_id": un_b.request_id,
+                "work_id": un_b.request_id,
+                "asset_id": un_b.asset_id,
+                "location": un_b.location,
+                "priority": un_b.priority.value if hasattr(un_b.priority, "value") else str(un_b.priority),
+                "duration_minutes": un_b.duration_minutes,
+                "source": "CP_SAT_Solver",
+                "reason": un_b.reason,
+                "resource_contention": un_b.resource_contention,
+            })
+
+        # Total scheduled and unscheduled counts
+        num_scheduled = len(opt_res.scheduled_blocks) if opt_res.status in (OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE) else 0
+        total_unassigned = len(combined_unscheduled)
+
+        # Optimization metadata with solver telemetry
+        opt_meta = {
+            "optimization_request": opt_req.model_dump(),
+            "status": opt_res.status.value,
+            "objective_value": opt_res.objective_value,
+            "plan_id": opt_res.plan_id,
+            "wall_time_seconds": opt_res.solver_statistics.wall_time_seconds,
+            "num_variables": opt_res.solver_statistics.num_variables,
+            "num_constraints": opt_res.solver_statistics.num_constraints,
+        }
+        if opt_res.status == OptimizationStatus.INFEASIBLE:
+            opt_meta["infeasibility_explanation"] = "CP-SAT proved problem has no mathematically feasible solution under hard constraints"
+
+        diagnostics = {
+            "solver_status": opt_res.status.value,
+            "objective_value": opt_res.objective_value,
+            "total_windows_audited": len(avail_report.available_windows),
+            "rejection_summary": match_report.rejection_summary,
+            "corridor_capacities": avail_report.corridor_capacities,
+            "pre_solver_rejected_count": len(match_report.rejected_works),
+            "solver_unscheduled_count": len(opt_res.unscheduled_blocks),
+            "conflicts_before": opt_res.solver_statistics.conflicts_before,
+            "conflicts_after": opt_res.solver_statistics.conflicts_after,
+        }
+
+        sched_blocks_dump = [b.model_dump() if hasattr(b, "model_dump") else b for b in opt_res.scheduled_blocks]
+
         return DailyScheduleResult(
             plan_id=plan_id,
             target_date=problem.target_date,
             generated_at=datetime.now(timezone.utc).isoformat(),
-            total_scheduled=0,  # Solver not run in Phase 3
-            total_unscheduled=match_report.total_rejected,
-            scheduled_works=[m.model_dump() for m in match_report.successful_matches],
-            optimized_block_assignments=[],
-            unscheduled_works=[],
-            diagnostics={
-                "total_windows_audited": len(avail_report.available_windows),
-                "rejection_summary": match_report.rejection_summary,
-                "corridor_capacities": avail_report.corridor_capacities,
-            },
+            total_scheduled=num_scheduled,
+            total_unscheduled=total_unassigned,
+            scheduled_works=sched_blocks_dump,
+            optimized_block_assignments=opt_res.scheduled_blocks,
+            unscheduled_works=combined_unscheduled,
+            diagnostics=diagnostics,
             matching_statistics={
                 "total_works": match_report.total_works,
                 "total_matches": match_report.total_matches,
                 "total_rejected": match_report.total_rejected,
                 "rejection_summary": match_report.rejection_summary,
             },
-            optimization_metadata={
-                "optimization_request": opt_req.model_dump(),
-                "status": "PreparedForOptimization",
-            },
+            optimization_metadata=opt_meta,
+            solver_statistics=opt_res.solver_statistics,
         )
 
 
