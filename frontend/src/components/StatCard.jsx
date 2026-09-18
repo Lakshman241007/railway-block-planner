@@ -11,6 +11,22 @@ export default function StatCard({
 }) {
   const accentClass = `accent-${accent}`;
 
+  const getBadgeClass = (type) => {
+    switch (type) {
+      case 'critical':
+      case 'danger':
+        return 'badge-critical';
+      case 'warning':
+      case 'high':
+        return 'badge-high';
+      case 'success':
+        return 'badge-low';
+      case 'info':
+      default:
+        return 'badge-cyan';
+    }
+  };
+
   return (
     <div className={`stat-card ${accentClass}`}>
       <div className="stat-card-header">
@@ -21,8 +37,8 @@ export default function StatCard({
       <div className="stat-card-value">{value}</div>
 
       <div className="stat-card-footer">
-        {badge && <span className={`badge ${badgeType === 'critical' ? 'badge-critical' : badgeType === 'success' ? 'badge-low' : 'badge-cyan'}`}>{badge}</span>}
-        <span>{subtitle}</span>
+        {badge && <span className={`badge ${getBadgeClass(badgeType)}`}>{badge}</span>}
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subtitle}</span>
       </div>
     </div>
   );

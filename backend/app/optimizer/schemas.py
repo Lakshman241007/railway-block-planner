@@ -25,6 +25,7 @@ class OptimizationStatus(str, Enum):
     OPTIMAL = "OPTIMAL"
     FEASIBLE = "FEASIBLE"
     INFEASIBLE = "INFEASIBLE"
+    TIME_LIMIT = "TIME_LIMIT"
     UNKNOWN = "UNKNOWN"
     MODEL_INVALID = "MODEL_INVALID"
 
@@ -138,6 +139,28 @@ class OptimizationRequest(BaseModel):
         description="Maximum candidate slots generated per maintenance request",
     )
 
+    # --- Feature 3: Urgency Overrides & Re-Optimization Preferences ---
+    priority_overrides: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Per-task priority overrides for this run: { 'TRK-M-001': 'Critical', 'BLK-002': 'High' }",
+    )
+    pinned_slots: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Locked slot times for re-optimization: { 'TRK-M-001': '02:00-04:00' }",
+    )
+    mandatory_request_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Task IDs that MUST be scheduled (hard constraint: sum(x) == 1)",
+    )
+    exclude_from_reopt: Optional[List[str]] = Field(
+        default=None,
+        description="Task IDs to exclude/freeze from this re-optimization run",
+    )
+    strategy_preset: Optional[str] = Field(
+        default="balanced",
+        description="Solver trade-off preset: 'balanced' | 'max_throughput' | 'minimal_disruption' | 'safety_priority'",
+    )
+
     model_config = {"str_strip_whitespace": True}
 
 
@@ -163,6 +186,8 @@ class OptimizedBlock(BaseModel):
     fit_score: float = Field(default=1.0, ge=0.0, le=1.0, description="Fit score of assigned slot")
     is_preferred_match: bool = Field(default=True, description="True if scheduled at preferred time")
     deviation_minutes: int = Field(default=0, ge=0, description="Minutes deviated from requested start")
+    is_pinned: bool = Field(default=False, description="True if block was pinned by operator preference")
+    is_shifted: bool = Field(default=False, description="True if block shifted from requested or prior slot")
 
     model_config = {"str_strip_whitespace": True}
 
@@ -183,7 +208,10 @@ class UnscheduledBlock(BaseModel):
     priority: Priority = Field(..., description="Priority level")
     equipment: Optional[str] = Field(default=None, description="Requested specialized equipment")
     required_resources: int = Field(default=1, ge=1, description="Requested resource units")
-    reason: str = Field(..., description="Explanation of why request could not be scheduled")
+    reason: str = Field(..., description="Detailed diagnostic explanation for why this could not be scheduled")
+    resource_contention: Optional[str] = Field(
+        default=None, description="Specific resource, track, or crew constraint causing the blockage"
+    )
 
     model_config = {"str_strip_whitespace": True}
 
@@ -199,10 +227,15 @@ class SolverStatistics(BaseModel):
     num_scheduled: int = Field(default=0, ge=0, description="Total maintenance blocks successfully scheduled")
     num_unscheduled: int = Field(default=0, ge=0, description="Total unscheduled maintenance requests")
     num_conflicts_avoided: int = Field(default=0, ge=0, description="Estimated conflicts resolved by solver")
+    conflicts_before: Optional[int] = Field(default=None, ge=0, description="Pre-optimization operational conflicts count")
+    conflicts_after: Optional[int] = Field(default=None, ge=0, description="Post-optimization operational conflicts count")
     total_requests: int = Field(default=0, ge=0, description="Total maintenance requests processed")
     num_variables: int = Field(default=0, ge=0, description="Total CP-SAT decision variables created")
     num_constraints: int = Field(default=0, ge=0, description="Total hard constraints enforced")
     num_branches: Optional[int] = Field(default=0, ge=0, description="Search branches explored by CP-SAT")
+    num_pinned: int = Field(default=0, ge=0, description="Number of pinned possessions retained")
+    num_shifted: int = Field(default=0, ge=0, description="Possessions whose times shifted during re-optimization")
+    stability_score: Optional[float] = Field(default=None, description="Percentage of schedule unchanged (0.0 - 1.0)")
 
     model_config = {"str_strip_whitespace": True}
 

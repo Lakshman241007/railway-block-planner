@@ -59,11 +59,12 @@ def compute_slot_coefficient(
     priority = meta.get("priority", Priority.LOW)
     coeff += get_priority_weight(priority, weights)
 
-    # 3. Preferred start time deviation penalty
+    # 3. Preferred start time & date deviation penalty (in absolute timeline minutes)
     start_mins = meta.get("start_minutes", 0)
     pref_mins = meta.get("preferred_start_minutes", start_mins)
-    deviation = abs(start_mins - pref_mins)
-    coeff -= weights.weight_preferred_deviation * deviation
+    day_shift = meta.get("day_shift", 0)
+    total_deviation = abs(day_shift * 1440 + start_mins - pref_mins)
+    coeff -= weights.weight_preferred_deviation * total_deviation
 
     # 4. Disruption / slot fit degradation penalty
     fit_score = meta.get("fit_score", 1.0)

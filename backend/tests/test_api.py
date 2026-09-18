@@ -59,12 +59,15 @@ def test_health_endpoint(test_client):
 
 
 def test_root_endpoint(test_client):
-    """Test / root endpoint returns metadata."""
+    """Test / root endpoint returns metadata or serves frontend SPA."""
     response = test_client.get("/")
     assert response.status_code == 200
-    data = response.json()
-    assert data["name"] == "Railway Block Planner API"
-    assert data["docs"] == "/docs"
+    if "text/html" in response.headers.get("content-type", ""):
+        assert "<!DOCTYPE html>" in response.text
+    else:
+        data = response.json()
+        assert data["name"] == "Railway Block Planner API"
+        assert data["docs"] == "/docs"
 
 
 def test_get_trains_endpoint(test_client):
@@ -165,13 +168,15 @@ def test_get_block_by_id_success_and_404(test_client):
 
 
 def test_get_plans_endpoint(test_client):
-    """Test /api/plans returns persistence block view."""
+    """Test /api/plans returns Phase 5 block planning view (data + note)."""
     response = test_client.get("/api/plans")
     assert response.status_code == 200
     payload = response.json()
     assert "data" in payload
-    assert "message" in payload
+    # Phase 5: 'message' replaced with 'note' pointing to /api/plans/optimized
+    assert "note" in payload
     assert payload["count"] > 0
+
 
 
 # ===========================================================================
@@ -256,4 +261,209 @@ def test_plans_generate_endpoint(test_client):
     assert "schedule" in plan
     assert "conflict_report" in plan
     assert "resolution_recommendations" in plan
+
+
+def test_get_timetable_endpoint(test_client):
+    """Test GET /api/timetable returns paginated timetable stops."""
+    response = test_client.get("/api/timetable")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "data" in payload
+    assert "count" in payload
+    assert "total" in payload
+    assert payload["total"] > 0
+
+
+def test_get_timetable_filtered_by_date(test_client):
+    """Test GET /api/timetable?service_date=2026-09-07 returns stops for default date."""
+    response = test_client.get("/api/timetable?service_date=2026-09-07")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 39
+    assert all(item["service_date"] == "2026-09-07" for item in payload["data"])
+
+
+def test_get_timetable_by_train(test_client):
+    """Test GET /api/timetable/train/{train_id} returns scheduled stops."""
+    response = test_client.get("/api/timetable/train/G123")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "data" in payload
+    assert payload["count"] > 0
+    assert all(item["train_id"] == "G123" for item in payload["data"])
+
+
+def test_get_movements_endpoint(test_client):
+    """Test GET /api/movements returns corridor movement records."""
+    response = test_client.get("/api/movements")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "data" in payload
+    assert "count" in payload
+    assert "total" in payload
+    assert payload["total"] > 0
+
+
+def test_get_movements_by_train(test_client):
+    """Test GET /api/movements/train/{train_id} returns movements for train."""
+    response = test_client.get("/api/movements/train/G123")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "data" in payload
+    assert payload["count"] > 0
+    assert all(item["train_id"] == "G123" for item in payload["data"])
+
+
+def test_get_movements_by_section(test_client):
+    """Test GET /api/movements/section/{section} returns section movements."""
+    response = test_client.get("/api/movements/section/Chennai-Perambur")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "data" in payload
+    assert payload["count"] > 0
+
+
+# ===========================================================================
+# Feature 1 — PATCH endpoint tests: Manual Schedule Editing
+# ===========================================================================
+
+def test_patch_block_updates_fields(test_client):
+    """PATCH /api/blocks/{block_id} — partial update persists new values."""
+    # Fetch a real block_id from the seeded database.
+    list_resp = test_client.get("/api/blocks")
+    first_block = list_resp.json()["data"][0]
+    block_id = first_block["block_id"]
+
+    # Patch only priority and status; other fields must remain unchanged.
+    patch_resp = test_client.patch(
+        f"/api/blocks/{block_id}",
+        json={"priority": "High", "status": "Approved"},
+    )
+    assert patch_resp.status_code == 200
+    updated = patch_resp.json()["data"]
+    assert updated["block_id"] == block_id
+    assert updated["priority"] == "High"
+    assert updated["status"] == "Approved"
+    # Structural fields must not have been touched.
+    assert updated["location"] == first_block["location"]
+    assert updated["block_type"] == first_block["block_type"]
+
+
+def test_patch_block_empty_body_returns_current_record(test_client):
+    """PATCH /api/blocks/{block_id} with empty body returns the unchanged record."""
+    list_resp = test_client.get("/api/blocks")
+    first_block = list_resp.json()["data"][0]
+    block_id = first_block["block_id"]
+
+    patch_resp = test_client.patch(f"/api/blocks/{block_id}", json={})
+    assert patch_resp.status_code == 200
+    # The returned record must be identical to what was there before.
+    returned = patch_resp.json()["data"]
+    assert returned["block_id"] == block_id
+
+
+def test_patch_block_404(test_client):
+    """PATCH /api/blocks/{block_id} returns 404 for an unknown block_id."""
+    response = test_client.patch(
+        "/api/blocks/NONEXISTENT_BLOCK_XYZ",
+        json={"priority": "High"},
+    )
+    assert response.status_code == 404
+    assert "detail" in response.json()
+
+
+def test_patch_block_invalid_priority_422(test_client):
+    """PATCH /api/blocks/{block_id} returns 422 for an unrecognised priority value."""
+    list_resp = test_client.get("/api/blocks")
+    block_id = list_resp.json()["data"][0]["block_id"]
+
+    response = test_client.patch(
+        f"/api/blocks/{block_id}",
+        json={"priority": "SuperUrgent"},
+    )
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
+
+def test_patch_block_invalid_status_422(test_client):
+    """PATCH /api/blocks/{block_id} returns 422 for an unrecognised status value."""
+    list_resp = test_client.get("/api/blocks")
+    block_id = list_resp.json()["data"][0]["block_id"]
+
+    response = test_client.patch(
+        f"/api/blocks/{block_id}",
+        json={"status": "Pending"},  # Valid for maintenance, not for blocks.
+    )
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
+
+def test_patch_maintenance_updates_fields(test_client):
+    """PATCH /api/maintenance/{id} — partial update persists new values."""
+    # Fetch a real integer id from the seeded database.
+    list_resp = test_client.get("/api/maintenance")
+    first_record = list_resp.json()["data"][0]
+    record_id = first_record["id"]
+
+    patch_resp = test_client.patch(
+        f"/api/maintenance/{record_id}",
+        json={"status": "Approved", "duration_minutes": 90},
+    )
+    assert patch_resp.status_code == 200
+    updated = patch_resp.json()["data"]
+    assert updated["id"] == record_id
+    assert updated["status"] == "Approved"
+    assert updated["duration_minutes"] == 90
+    # Structural fields must not have been touched.
+    assert updated["asset_id"] == first_record["asset_id"]
+
+
+def test_patch_maintenance_empty_body_returns_current_record(test_client):
+    """PATCH /api/maintenance/{id} with empty body returns the unchanged record."""
+    list_resp = test_client.get("/api/maintenance")
+    first_record = list_resp.json()["data"][0]
+    record_id = first_record["id"]
+
+    patch_resp = test_client.patch(f"/api/maintenance/{record_id}", json={})
+    assert patch_resp.status_code == 200
+    returned = patch_resp.json()["data"]
+    assert returned["id"] == record_id
+
+
+def test_patch_maintenance_404(test_client):
+    """PATCH /api/maintenance/{id} returns 404 for an unknown integer id."""
+    response = test_client.patch(
+        "/api/maintenance/999999",
+        json={"status": "Approved"},
+    )
+    assert response.status_code == 404
+    assert "detail" in response.json()
+
+
+def test_patch_maintenance_invalid_duration_422(test_client):
+    """PATCH /api/maintenance/{id} returns 422 when duration_minutes <= 0."""
+    list_resp = test_client.get("/api/maintenance")
+    record_id = list_resp.json()["data"][0]["id"]
+
+    response = test_client.patch(
+        f"/api/maintenance/{record_id}",
+        json={"duration_minutes": 0},
+    )
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
+
+def test_patch_maintenance_invalid_status_422(test_client):
+    """PATCH /api/maintenance/{id} returns 422 for an unrecognised status."""
+    list_resp = test_client.get("/api/maintenance")
+    record_id = list_resp.json()["data"][0]["id"]
+
+    response = test_client.patch(
+        f"/api/maintenance/{record_id}",
+        json={"status": "Rejected"},  # Valid for blocks, not for maintenance.
+    )
+    assert response.status_code == 422
+    assert "detail" in response.json()
+
+
 
