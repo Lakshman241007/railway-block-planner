@@ -401,12 +401,12 @@ class TestScheduleDailyPipeline:
 
     def test_schedule_daily_orchestration(self, base_problem: DailySchedulingProblem):
         scheduler = DailyScheduler()
-        result = scheduler.schedule_daily(base_problem)
+        result = scheduler.schedule_daily(base_problem, invoke_solver=False)
 
         assert isinstance(result, DailyScheduleResult)
         assert result.plan_id.startswith("DSCHED-")
         assert result.target_date == base_problem.target_date
-        assert result.total_scheduled == 0  # Solver not run in Phase 3
+        assert result.total_scheduled == 0  # Solver not run in pre-solver mode
         assert result.total_unscheduled > 0
         assert len(result.scheduled_works) >= 1
         assert "optimization_request" in result.optimization_metadata
@@ -434,7 +434,7 @@ class TestArchitecturalBoundary:
             assert isinstance(opt_req, OptimizationRequest)
             mock_optimizer.assert_not_called()
 
-            res = scheduler.schedule_daily(base_problem)
+            res = scheduler.schedule_daily(base_problem, invoke_solver=False)
             assert isinstance(res, DailyScheduleResult)
             mock_optimizer.assert_not_called()
 

@@ -276,6 +276,48 @@ class CP_SAT_Optimizer:
             if base_date <= b.requested_date < end_date:
                 active.append(self._build_block_request_dict(b, b_id, req.priority_overrides))
 
+        # Ingest candidate works from OptimizationRequest (Phase 4 Daily Scheduler pipeline)
+        existing_ids = {r["request_id"] for r in active}
+        if req.candidate_works:
+            for w in req.candidate_works:
+                w_id = getattr(w, "work_id", None) or (w.get("work_id") if isinstance(w, dict) else str(w))
+                if not w_id or w_id in existing_ids or w_id in exclude_set:
+                    continue
+                w_loc = getattr(w, "location", None) or (w.get("location") if isinstance(w, dict) else "")
+                w_prio = getattr(w, "priority", None) or (w.get("priority") if isinstance(w, dict) else Priority.MEDIUM)
+                if isinstance(w_prio, str):
+                    try:
+                        w_prio = Priority(w_prio)
+                    except Exception:
+                        w_prio = Priority.MEDIUM
+                if req.priority_filter and w_prio.value.lower() != req.priority_filter.lower():
+                    continue
+                if req.location_filter and req.location_filter.lower() not in w_loc.lower():
+                    continue
+
+                w_date = getattr(w, "preferred_date", None) or (w.get("preferred_date") if isinstance(w, dict) else None) or base_date
+                w_start = getattr(w, "preferred_start", None) or (w.get("preferred_start") if isinstance(w, dict) else None) or "00:00"
+                w_dur = getattr(w, "required_duration_minutes", None) or (w.get("required_duration_minutes") if isinstance(w, dict) else 60)
+                w_res = getattr(w, "required_resources", None) or (w.get("required_resources") if isinstance(w, dict) else 1)
+                w_equip = getattr(w, "equipment", None) or (w.get("equipment") if isinstance(w, dict) else None)
+                w_asset = getattr(w, "asset_id", None) or (w.get("asset_id") if isinstance(w, dict) else None) or w_id
+
+                eff_prio = _apply_priority_override(w_id, w_prio, req.priority_overrides)
+                item = {
+                    "request_id": w_id,
+                    "asset_id": w_asset,
+                    "block_id": None,
+                    "location": w_loc,
+                    "priority": eff_prio,
+                    "duration_minutes": w_dur,
+                    "requested_date": w_date,
+                    "preferred_start": str(w_start),
+                    "equipment": w_equip,
+                    "required_resources": w_res,
+                }
+                active.append(item)
+                existing_ids.add(w_id)
+
         active.sort(
             key=lambda r: (PRIORITY_RANK.get(r["priority"], 1), r["duration_minutes"], r["request_id"]),
             reverse=True,
@@ -410,38 +452,129 @@ class CP_SAT_Optimizer:
         slot_metadata: Dict[str, Dict[str, Any]] = {}
         slot_counter = 1
 
+        windows_map: Dict[str, Any] = {}
+        if req.available_windows:
+            for w in req.available_windows:
+                w_id = getattr(w, "window_id", None) or (w.get("window_id") if isinstance(w, dict) else None)
+                if w_id:
+                    windows_map[w_id] = w
+
+        matches_by_work: Dict[str, List[Any]] = {}
+        if req.candidate_matches is not None:
+            for m in req.candidate_matches:
+                m_work_id = getattr(m, "work_id", None) or (m.get("work_id") if isinstance(m, dict) else None)
+                is_compat = getattr(m, "is_compatible", True) if hasattr(m, "is_compatible") else (m.get("is_compatible", True) if isinstance(m, dict) else True)
+                if m_work_id and is_compat:
+                    matches_by_work.setdefault(m_work_id, []).append(m)
+
         for r_item in active_requests:
             req_id = r_item["request_id"]
             requests_to_slots[req_id] = []
-            slots = self._find_slots_for_single_request(scheduler, r_item, req)
             pref_mins = _parse_time_to_minutes(r_item["preferred_start"]) or 600
 
-            for slot in slots:
-                s_id = f"OPT-SLOT-{slot_counter:04d}"
-                slot_counter += 1
-                requests_to_slots[req_id].append(s_id)
-                s_start = _parse_time_to_minutes(slot.start_time) or 0
-                s_end = s_start + r_item["duration_minutes"]
+            if req.candidate_matches is not None:
+                candidate_matches_for_item = list(matches_by_work.get(req_id, []))
+                if req.pinned_slots and req_id in req.pinned_slots:
+                    pin_val = req.pinned_slots[req_id]
+                    pin_start, pin_end = _parse_pinned_window(pin_val, r_item["duration_minutes"])
+                    matching_pins = [
+                        m for m in candidate_matches_for_item
+                        if getattr(windows_map.get(getattr(m, "window_id", None) or (m.get("window_id") if isinstance(m, dict) else None)), "start_time", "") == pin_start
+                    ]
+                    if matching_pins:
+                        candidate_matches_for_item = matching_pins
+                    else:
+                        s_id = f"PINNED-{req_id}"
+                        requests_to_slots[req_id].append(s_id)
+                        p_start_m = _parse_time_to_minutes(pin_start) or 0
+                        p_end_m = p_start_m + r_item["duration_minutes"]
+                        slot_metadata[s_id] = {
+                            "slot_id": s_id,
+                            "request_id": req_id,
+                            "asset_id": r_item["asset_id"],
+                            "block_id": r_item["block_id"],
+                            "location": r_item["location"],
+                            "service_date": r_item["requested_date"],
+                            "start_time": pin_start,
+                            "end_time": pin_end,
+                            "start_minutes": p_start_m,
+                            "end_minutes": p_end_m,
+                            "duration_minutes": r_item["duration_minutes"],
+                            "preferred_start_minutes": pref_mins,
+                            "fit_score": 1.0,
+                            "is_preferred_match": True,
+                            "priority": r_item["priority"],
+                            "equipment": r_item["equipment"],
+                            "required_resources": r_item["required_resources"],
+                        }
+                        continue
 
-                slot_metadata[s_id] = {
-                    "slot_id": s_id,
-                    "request_id": req_id,
-                    "asset_id": r_item["asset_id"],
-                    "block_id": r_item["block_id"],
-                    "location": r_item["location"],
-                    "service_date": r_item["requested_date"],
-                    "start_time": slot.start_time,
-                    "end_time": slot.end_time,
-                    "start_minutes": s_start,
-                    "end_minutes": s_end,
-                    "duration_minutes": r_item["duration_minutes"],
-                    "preferred_start_minutes": pref_mins,
-                    "fit_score": slot.fit_score,
-                    "is_preferred_match": slot.is_preferred_match,
-                    "priority": r_item["priority"],
-                    "equipment": r_item["equipment"],
-                    "required_resources": r_item["required_resources"],
-                }
+                for m in candidate_matches_for_item:
+                    win_id = getattr(m, "window_id", None) or (m.get("window_id") if isinstance(m, dict) else None)
+                    win = windows_map.get(win_id)
+                    if not win:
+                        continue
+                    w_start_str = getattr(win, "start_time", "00:00") or "00:00"
+                    w_end_str = getattr(win, "end_time", "23:59") or "23:59"
+                    w_block_id = getattr(win, "block_id", None) or win_id
+                    fit = getattr(m, "fit_score", 1.0) if hasattr(m, "fit_score") else (m.get("fit_score", 1.0) if isinstance(m, dict) else 1.0)
+
+                    s_id = f"OPT-SLOT-{slot_counter:04d}"
+                    slot_counter += 1
+                    requests_to_slots[req_id].append(s_id)
+                    s_start = _parse_time_to_minutes(w_start_str) or 0
+                    s_end = s_start + r_item["duration_minutes"]
+                    dev_mins = abs(s_start - pref_mins)
+
+                    slot_metadata[s_id] = {
+                        "slot_id": s_id,
+                        "request_id": req_id,
+                        "asset_id": r_item["asset_id"],
+                        "block_id": w_block_id,
+                        "window_id": win_id,
+                        "location": r_item["location"],
+                        "service_date": r_item["requested_date"],
+                        "start_time": w_start_str,
+                        "end_time": _format_minutes_to_time(s_end),
+                        "start_minutes": s_start,
+                        "end_minutes": s_end,
+                        "duration_minutes": r_item["duration_minutes"],
+                        "preferred_start_minutes": pref_mins,
+                        "fit_score": fit,
+                        "is_preferred_match": (dev_mins <= 15),
+                        "priority": r_item["priority"],
+                        "equipment": r_item["equipment"],
+                        "required_resources": r_item["required_resources"],
+                    }
+            else:
+                # Legacy candidate slot generation
+                slots = self._find_slots_for_single_request(scheduler, r_item, req)
+                for slot in slots:
+                    s_id = f"OPT-SLOT-{slot_counter:04d}"
+                    slot_counter += 1
+                    requests_to_slots[req_id].append(s_id)
+                    s_start = _parse_time_to_minutes(slot.start_time) or 0
+                    s_end = s_start + r_item["duration_minutes"]
+
+                    slot_metadata[s_id] = {
+                        "slot_id": s_id,
+                        "request_id": req_id,
+                        "asset_id": r_item["asset_id"],
+                        "block_id": r_item["block_id"],
+                        "location": r_item["location"],
+                        "service_date": r_item["requested_date"],
+                        "start_time": slot.start_time,
+                        "end_time": slot.end_time,
+                        "start_minutes": s_start,
+                        "end_minutes": s_end,
+                        "duration_minutes": r_item["duration_minutes"],
+                        "preferred_start_minutes": pref_mins,
+                        "fit_score": slot.fit_score,
+                        "is_preferred_match": slot.is_preferred_match,
+                        "priority": r_item["priority"],
+                        "equipment": r_item["equipment"],
+                        "required_resources": r_item["required_resources"],
+                    }
 
         return requests_to_slots, slot_metadata
 
