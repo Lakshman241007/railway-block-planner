@@ -4,7 +4,8 @@ Block Planner package.
 Exports the tactical BlockPlanner and canonical planning horizon contracts.
 """
 
-from backend.app.block_planner.planner import BlockPlanner
+from typing import Any
+
 from backend.app.block_planner.schemas import (
     BlockPlanRequest,
     BlockPlanResult,
@@ -29,3 +30,11 @@ __all__ = [
     "WeeklyPlan",
     "WeeklyPlanItem",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "BlockPlanner":
+        from backend.app.block_planner.planner import BlockPlanner
+        return BlockPlanner
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
