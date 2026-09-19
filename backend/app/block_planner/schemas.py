@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from backend.app.forecast.schemas import GoodsForecastResult
-from backend.app.schemas.unified_data import Priority
+from backend.app.schemas.unified_data import Priority, PriorityEnrichment
 from backend.app.scheduler.schemas import (
     ConflictReport,
     CorridorAvailabilityWindow,
@@ -81,6 +81,8 @@ class MonthlyPlanItem(BaseModel):
     equipment: Optional[str] = Field(default=None, description="Required specialized equipment")
     status: str = Field(default="Planned", description="Planning lifecycle status (Planned, Deferred, Approved)")
     description: Optional[str] = Field(default=None, description="Work description or engineering notes")
+    priority_value: Optional[float] = Field(default=None, description="Authoritative AI priority score")
+    priority_enrichment: Optional[PriorityEnrichment] = Field(default=None, description="AI prioritization explainability metrics")
 
     model_config = {"str_strip_whitespace": True, "extra": "allow"}
 
@@ -154,6 +156,8 @@ class WeeklyPlanItem(BaseModel):
     )
     is_mandatory: bool = Field(default=False, description="Whether this task is mandatory/hard-constrained")
     is_pinned: bool = Field(default=False, description="Whether slot timing is pinned from a previous plan")
+    priority_value: Optional[float] = Field(default=None, description="Authoritative AI priority score")
+    priority_enrichment: Optional[PriorityEnrichment] = Field(default=None, description="AI prioritization explainability metrics")
 
     model_config = {"str_strip_whitespace": True, "extra": "allow"}
 
@@ -217,6 +221,8 @@ class CandidateWorkItem(BaseModel):
         default=None,
         description="Extensible envelope reserved for future AI prioritization metrics (urgency, criticality, overdue_factor, etc.)",
     )
+    priority_value: Optional[float] = Field(default=None, description="Authoritative AI priority score")
+    priority_enrichment: Optional[PriorityEnrichment] = Field(default=None, description="AI prioritization explainability metrics")
 
     model_config = {"str_strip_whitespace": True, "extra": "allow"}
 

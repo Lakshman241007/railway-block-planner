@@ -189,14 +189,17 @@ def _resolve_preset_weights_and_buffer(
 def _apply_priority_override(
     req_id: str,
     original: Priority,
-    overrides: Optional[Dict[str, str]],
+    overrides: Optional[Dict[str, Any]],
 ) -> Priority:
     """Resolve runtime operator priority override for a maintenance task."""
     if not overrides or req_id not in overrides:
         return original
     override_val = overrides[req_id]
+    if isinstance(override_val, Priority):
+        return override_val
+    val_str = str(override_val).strip()
     for p in Priority:
-        if p.value.lower() == override_val.lower():
+        if p.value.lower() == val_str.lower():
             return p
     return original
 
@@ -314,6 +317,8 @@ class CP_SAT_Optimizer:
                     "preferred_start": str(w_start),
                     "equipment": w_equip,
                     "required_resources": w_res,
+                    "priority_value": getattr(w, "priority_value", None) or (w.get("priority_value") if isinstance(w, dict) else None),
+                    "priority_enrichment": getattr(w, "priority_enrichment", None) or (w.get("priority_enrichment") if isinstance(w, dict) else None),
                 }
                 active.append(item)
                 existing_ids.add(w_id)
@@ -378,6 +383,8 @@ class CP_SAT_Optimizer:
             "preferred_start": pref_str,
             "equipment": m.equipment,
             "required_resources": m.required_resources,
+            "priority_value": getattr(m, "priority_value", None),
+            "priority_enrichment": getattr(m, "priority_enrichment", None),
         }
 
     def _build_block_request_dict(
@@ -400,6 +407,8 @@ class CP_SAT_Optimizer:
             "preferred_start": b.requested_start,
             "equipment": None,
             "required_resources": 1,
+            "priority_value": getattr(b, "priority_value", None),
+            "priority_enrichment": getattr(b, "priority_enrichment", None),
         }
 
     def _find_slots_for_single_request(
@@ -611,6 +620,8 @@ class CP_SAT_Optimizer:
             deviation_minutes=dev_mins,
             is_pinned=is_pinned,
             is_shifted=is_shifted,
+            priority_value=r_item.get("priority_value"),
+            priority_enrichment=r_item.get("priority_enrichment"),
         )
 
     def _build_unscheduled_block(
@@ -638,6 +649,8 @@ class CP_SAT_Optimizer:
             equipment=r_item["equipment"],
             required_resources=r_item["required_resources"],
             reason=reason,
+            priority_value=r_item.get("priority_value"),
+            priority_enrichment=r_item.get("priority_enrichment"),
         )
 
     def _extract_results(

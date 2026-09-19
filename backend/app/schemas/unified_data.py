@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import date, time
 from enum import Enum
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -41,6 +41,53 @@ class MaintenanceStatus(str, Enum):
     APPROVED = "Approved"
     COMPLETED = "Completed"
     CANCELLED = "Cancelled"
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — AI Prioritization Enrichment Contract
+# ---------------------------------------------------------------------------
+
+class PriorityEnrichment(BaseModel):
+    """
+    AI Prioritization Enrichment Contract (Phase 5).
+    Encapsulates explainable prioritization factors and the final priority_value score.
+    """
+
+    urgency: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Normalized urgency metric (0.0 to 1.0)",
+    )
+    criticality: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Asset/track safety criticality rating (0.0 to 1.0)",
+    )
+    overdue_factor: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Multiplier representing overdue maintenance accumulation",
+    )
+    asset_availability_impact: Optional[str] = Field(
+        default=None,
+        description="Qualitative or categorised impact on asset availability (e.g. Low, Moderate, High)",
+    )
+    operational_impact: Optional[str] = Field(
+        default=None,
+        description="Disruption impact on network operations (e.g. Minor, Major, Severe)",
+    )
+    priority_value: float = Field(
+        ...,
+        description="Final authoritative numerical priority score for downstream scheduling",
+    )
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Provenance details, model version, or feature importances",
+    )
+
+    model_config = {"str_strip_whitespace": True, "extra": "allow"}
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +178,14 @@ class MaintenanceRecord(BaseModel):
         default=None,
         description="Name of the originating data source (e.g. 'smms')",
     )
+    priority_enrichment: Optional[PriorityEnrichment] = Field(
+        default=None,
+        description="AI prioritization enrichment contract containing explainable factors and priority_value",
+    )
+    priority_value: Optional[float] = Field(
+        default=None,
+        description="Authoritative numerical priority score (extracted from priority_enrichment if available)",
+    )
 
     # --- extra validators -------------------------------------------------
 
@@ -152,6 +207,7 @@ class MaintenanceRecord(BaseModel):
 
     model_config = {
         "str_strip_whitespace": True,
+        "extra": "allow",
     }
 
 

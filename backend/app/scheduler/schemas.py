@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from backend.app.schemas.unified_data import Priority
+from backend.app.schemas.unified_data import Priority, PriorityEnrichment
 
 
 class ConflictType(str, Enum):
@@ -233,6 +233,8 @@ class WorkBlockMatch(BaseModel):
         default_factory=list,
         description="List of reasons if incompatible (e.g. 'Location mismatch', 'Insufficient duration')",
     )
+    priority_value: Optional[float] = Field(default=None, description="Authoritative AI priority score")
+    priority_enrichment: Optional[PriorityEnrichment] = Field(default=None, description="AI prioritization explainability metrics")
 
     model_config = {"str_strip_whitespace": True, "extra": "allow"}
 
@@ -313,7 +315,7 @@ def __getattr__(name: str) -> Any:
     Dynamic attribute resolution allowing candidate problem schemas to be imported
     directly from backend.app.scheduler.schemas without cyclic dependencies.
     """
-    if name in ("CandidateWorkItem", "DailySchedulingProblem"):
+    if name in ("CandidateWorkItem", "DailySchedulingProblem", "PriorityEnrichment"):
         import backend.app.block_planner.schemas as bps
         return getattr(bps, name)
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
