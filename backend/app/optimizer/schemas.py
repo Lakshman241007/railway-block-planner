@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from backend.app.schemas.unified_data import Priority
+from backend.app.schemas.unified_data import Priority, PriorityEnrichment
 
 
 class OptimizationStatus(str, Enum):
@@ -140,9 +140,9 @@ class OptimizationRequest(BaseModel):
     )
 
     # --- Feature 3: Urgency Overrides & Re-Optimization Preferences ---
-    priority_overrides: Optional[Dict[str, str]] = Field(
+    priority_overrides: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="Per-task priority overrides for this run: { 'TRK-M-001': 'Critical', 'BLK-002': 'High' }",
+        description="Per-task priority overrides for this run: { 'TRK-M-001': 'Critical' } or numerical AI priority values",
     )
     pinned_slots: Optional[Dict[str, str]] = Field(
         default=None,
@@ -202,8 +202,10 @@ class OptimizedBlock(BaseModel):
     deviation_minutes: int = Field(default=0, ge=0, description="Minutes deviated from requested start")
     is_pinned: bool = Field(default=False, description="True if block was pinned by operator preference")
     is_shifted: bool = Field(default=False, description="True if block shifted from requested or prior slot")
+    priority_value: Optional[float] = Field(default=None, description="Authoritative AI priority score")
+    priority_enrichment: Optional[PriorityEnrichment] = Field(default=None, description="AI prioritization explainability metrics")
 
-    model_config = {"str_strip_whitespace": True}
+    model_config = {"str_strip_whitespace": True, "extra": "allow"}
 
 
 class UnscheduledBlock(BaseModel):
@@ -226,8 +228,10 @@ class UnscheduledBlock(BaseModel):
     resource_contention: Optional[str] = Field(
         default=None, description="Specific resource, track, or crew constraint causing the blockage"
     )
+    priority_value: Optional[float] = Field(default=None, description="Authoritative AI priority score")
+    priority_enrichment: Optional[PriorityEnrichment] = Field(default=None, description="AI prioritization explainability metrics")
 
-    model_config = {"str_strip_whitespace": True}
+    model_config = {"str_strip_whitespace": True, "extra": "allow"}
 
 
 class SolverStatistics(BaseModel):

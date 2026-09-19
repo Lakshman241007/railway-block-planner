@@ -838,6 +838,15 @@ class MaintenanceScheduler:
                     fit = 0.0
                     work_rejections_for_candidate.extend(reasons)
 
+                ai_prio = getattr(work, "priority_enrichment", None)
+                ai_val = getattr(work, "priority_value", None)
+                if ai_prio is not None:
+                    details["ai_priority"] = ai_prio.model_dump()
+                elif ai_val is not None:
+                    details["ai_priority"] = {"priority_value": ai_val}
+                elif getattr(work, "ai_priority_context", None):
+                    details["ai_priority"] = work.ai_priority_context
+
                 match_item = WorkBlockMatch(
                     match_id=f"MATCH-{work.work_id}-{window.window_id}",
                     work_id=work.work_id,
@@ -846,6 +855,8 @@ class MaintenanceScheduler:
                     fit_score=fit,
                     compatibility_details=details,
                     rejection_reasons=reasons,
+                    priority_value=ai_val,
+                    priority_enrichment=ai_prio,
                 )
                 evaluated_matches.append(match_item)
                 if is_compatible:
@@ -859,6 +870,7 @@ class MaintenanceScheduler:
                     "location": work.location,
                     "corridor": work.corridor,
                     "priority": work.priority.value if work.priority else "None",
+                    "priority_value": getattr(work, "priority_value", None),
                     "duration_minutes": work.required_duration_minutes,
                     "reasons": unique_reasons,
                 })
@@ -901,7 +913,7 @@ class MaintenanceScheduler:
         pinned = {w.work_id: w.pinned_slot for w in problem.candidate_works if w.is_pinned and w.pinned_slot}
 
         # Preserve priority information and explicit priority_value if present
-        priority_overrides: Dict[str, str] = {}
+        priority_overrides: Dict[str, Any] = {}
         for w in problem.candidate_works:
             pv = getattr(w, "priority_value", None)
             if pv is not None:
@@ -1017,14 +1029,19 @@ class MaintenanceScheduler:
                 "rejection_reasons": r_work.get("reasons", []),
             })
 
+        candidate_map = {w.work_id: w for w in problem.candidate_works}
+
         # 2. Solver unscheduled blocks (had candidate slots, but CP-SAT did not select)
         for un_b in opt_res.unscheduled_blocks:
+            c_work = candidate_map.get(un_b.request_id)
+            pv = getattr(un_b, "priority_value", None) or (getattr(c_work, "priority_value", None) if c_work else None)
             combined_unscheduled.append({
                 "request_id": un_b.request_id,
                 "work_id": un_b.request_id,
                 "asset_id": un_b.asset_id,
                 "location": un_b.location,
                 "priority": un_b.priority.value if hasattr(un_b.priority, "value") else str(un_b.priority),
+                "priority_value": pv,
                 "duration_minutes": un_b.duration_minutes,
                 "source": "CP_SAT_Solver",
                 "reason": un_b.reason,
@@ -1048,6 +1065,20 @@ class MaintenanceScheduler:
         if opt_res.status == OptimizationStatus.INFEASIBLE:
             opt_meta["infeasibility_explanation"] = "CP-SAT proved problem has no mathematically feasible solution under hard constraints"
 
+        # Attach AI priority context to scheduled blocks if available
+        for block in opt_res.scheduled_blocks:
+            c_work = candidate_map.get(block.request_id)
+            if c_work:
+                if getattr(block, "priority_value", None) is None:
+                    block.priority_value = getattr(c_work, "priority_value", None)
+                if getattr(block, "priority_enrichment", None) is None:
+                    block.priority_enrichment = getattr(c_work, "priority_enrichment", None)
+
+        ai_enriched_count = sum(
+            1 for w in problem.candidate_works
+            if getattr(w, "priority_value", None) is not None or getattr(w, "priority_enrichment", None) is not None
+        )
+
         diagnostics = {
             "solver_status": opt_res.status.value,
             "objective_value": opt_res.objective_value,
@@ -1058,6 +1089,10 @@ class MaintenanceScheduler:
             "solver_unscheduled_count": len(opt_res.unscheduled_blocks),
             "conflicts_before": opt_res.solver_statistics.conflicts_before,
             "conflicts_after": opt_res.solver_statistics.conflicts_after,
+            "ai_prioritization_summary": {
+                "total_candidate_works": len(problem.candidate_works),
+                "ai_enriched_works": ai_enriched_count,
+            },
         }
 
         sched_blocks_dump = [b.model_dump() if hasattr(b, "model_dump") else b for b in opt_res.scheduled_blocks]

@@ -158,6 +158,8 @@ class BlockPlanner:
                     corridor=corridor,
                     estimated_duration_minutes=dur,
                     priority=m.priority,
+                    priority_value=getattr(m, "priority_value", None),
+                    priority_enrichment=getattr(m, "priority_enrichment", None),
                     asset_id=m.asset_id,
                     asset_type=m.asset_type,
                     location=m.location,
@@ -194,6 +196,8 @@ class BlockPlanner:
                     corridor=corridor,
                     estimated_duration_minutes=dur,
                     priority=b.priority,
+                    priority_value=getattr(b, "priority_value", None),
+                    priority_enrichment=getattr(b, "priority_enrichment", None),
                     asset_id=None,
                     asset_type="Block Possession",
                     location=b.location,
@@ -297,6 +301,8 @@ class BlockPlanner:
                     required_resources=m.required_resources,
                     required_equipment=m.equipment,
                     priority=m.priority,
+                    priority_value=getattr(m, "priority_value", None),
+                    priority_enrichment=getattr(m, "priority_enrichment", None),
                     preferred_start=pref_str,
                     constraints=constraints,
                     is_mandatory=is_mandatory,
@@ -333,6 +339,8 @@ class BlockPlanner:
                     required_resources=1,
                     required_equipment=None,
                     priority=b.priority,
+                    priority_value=getattr(b, "priority_value", None),
+                    priority_enrichment=getattr(b, "priority_enrichment", None),
                     preferred_start=b.requested_start,
                     constraints=[f"Block type: {b.block_type.value if hasattr(b.block_type, 'value') else b.block_type}"],
                     is_mandatory=is_mandatory,
@@ -413,6 +421,14 @@ class BlockPlanner:
                 corridor = _resolve_corridor(m.location)
                 active_corridors.add(corridor)
 
+                ai_prio = getattr(m, "priority_enrichment", None)
+                ai_val = getattr(m, "priority_value", None)
+                ai_ctx = (
+                    ai_prio.model_dump()
+                    if ai_prio is not None
+                    else ({"priority_value": ai_val} if ai_val is not None else getattr(m, "ai_priority_context", None))
+                )
+
                 c_work = CandidateWorkItem(
                     work_id=f"MNT-{m.asset_id}",
                     location=m.location,
@@ -429,6 +445,9 @@ class BlockPlanner:
                     constraints=[f"Equipment: {m.equipment}"] if m.equipment else [],
                     is_mandatory=(m.priority == Priority.CRITICAL),
                     is_pinned=False,
+                    ai_priority_context=ai_ctx,
+                    priority_value=ai_val,
+                    priority_enrichment=ai_prio,
                 )
                 candidate_works.append(c_work)
 
@@ -443,6 +462,14 @@ class BlockPlanner:
                 corridor = _resolve_corridor(b.location)
                 dur = _calculate_duration_minutes(b.requested_start, b.requested_end)
                 active_corridors.add(corridor)
+
+                b_prio = getattr(b, "priority_enrichment", None)
+                b_val = getattr(b, "priority_value", None)
+                b_ctx = (
+                    b_prio.model_dump()
+                    if b_prio is not None
+                    else ({"priority_value": b_val} if b_val is not None else None)
+                )
 
                 c_work = CandidateWorkItem(
                     work_id=f"BLK-{b.block_id}",
@@ -460,6 +487,9 @@ class BlockPlanner:
                     constraints=[f"Block Type: {b.block_type.value if hasattr(b.block_type, 'value') else b.block_type}"],
                     is_mandatory=(b.priority == Priority.CRITICAL),
                     is_pinned=False,
+                    ai_priority_context=b_ctx,
+                    priority_value=b_val,
+                    priority_enrichment=b_prio,
                 )
                 candidate_works.append(c_work)
 
