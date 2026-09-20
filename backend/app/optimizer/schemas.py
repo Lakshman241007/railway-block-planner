@@ -33,6 +33,16 @@ class OptimizationStatus(str, Enum):
 class ObjectiveWeights(BaseModel):
     """
     Configurable weights for the multi-objective optimization function.
+
+    Priority signal model (single-priority XOR rule):
+        Primary path  — weight_priority_value × priority_value
+            Applied when priority_value is not None.  This is the sole priority
+            utility term; categorical label weights are excluded.
+        Legacy fallback — weight_priority_critical / high / medium / low
+            Applied ONLY when priority_value is None.  Preserves backward
+            compatibility for records that have not been scored by the
+            AI prioritization layer.  Never active simultaneously with
+            the primary numerical path.
     """
 
     weight_scheduled: int = Field(
@@ -43,22 +53,44 @@ class ObjectiveWeights(BaseModel):
     weight_priority_critical: int = Field(
         default=5000,
         ge=0,
-        description="Bonus weight for scheduling Critical priority maintenance",
+        description=(
+            "[Legacy fallback] Bonus applied when priority_value is None and "
+            "categorical priority is Critical. Never combined with weight_priority_value."
+        ),
     )
     weight_priority_high: int = Field(
         default=2500,
         ge=0,
-        description="Bonus weight for scheduling High priority maintenance",
+        description=(
+            "[Legacy fallback] Bonus applied when priority_value is None and "
+            "categorical priority is High. Never combined with weight_priority_value."
+        ),
     )
     weight_priority_medium: int = Field(
         default=1000,
         ge=0,
-        description="Bonus weight for scheduling Medium priority maintenance",
+        description=(
+            "[Legacy fallback] Bonus applied when priority_value is None and "
+            "categorical priority is Medium. Never combined with weight_priority_value."
+        ),
     )
     weight_priority_low: int = Field(
         default=200,
         ge=0,
-        description="Bonus weight for scheduling Low priority maintenance",
+        description=(
+            "[Legacy fallback] Bonus applied when priority_value is None and "
+            "categorical priority is Low. Never combined with weight_priority_value."
+        ),
+    )
+    weight_priority_value: int = Field(
+        default=50,
+        ge=0,
+        description=(
+            "[Primary] Multiplier for the single numerical priority signal. "
+            "Objective contribution = weight_priority_value × priority_value. "
+            "Applied only when priority_value is not None; categorical weights "
+            "are excluded when this path is active."
+        ),
     )
     weight_preferred_deviation: int = Field(
         default=5,
@@ -204,6 +236,10 @@ class OptimizedBlock(BaseModel):
     is_shifted: bool = Field(default=False, description="True if block shifted from requested or prior slot")
     priority_value: Optional[float] = Field(default=None, description="Authoritative AI priority score")
     priority_enrichment: Optional[PriorityEnrichment] = Field(default=None, description="AI prioritization explainability metrics")
+    priority_contribution: Optional[int] = Field(
+        default=None,
+        description="Objective score contribution awarded from numerical priority",
+    )
 
     model_config = {"str_strip_whitespace": True, "extra": "allow"}
 

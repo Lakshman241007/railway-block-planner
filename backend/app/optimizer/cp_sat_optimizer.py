@@ -74,6 +74,7 @@ STRATEGY_PRESETS: Dict[str, Dict[str, Any]] = {
             "weight_priority_high": 2500,
             "weight_priority_medium": 1000,
             "weight_priority_low": 200,
+            "weight_priority_value": 50,
             "weight_preferred_deviation": 5,
             "weight_disruption": 50,
             "weight_resource_contention": 100,
@@ -87,6 +88,7 @@ STRATEGY_PRESETS: Dict[str, Dict[str, Any]] = {
             "weight_priority_high": 1500,
             "weight_priority_medium": 800,
             "weight_priority_low": 100,
+            "weight_priority_value": 30,
             "weight_preferred_deviation": 1,
             "weight_disruption": 10,
             "weight_resource_contention": 50,
@@ -100,6 +102,7 @@ STRATEGY_PRESETS: Dict[str, Dict[str, Any]] = {
             "weight_priority_high": 2500,
             "weight_priority_medium": 1000,
             "weight_priority_low": 200,
+            "weight_priority_value": 50,
             "weight_preferred_deviation": 40,
             "weight_disruption": 100,
             "weight_resource_contention": 100,
@@ -113,6 +116,7 @@ STRATEGY_PRESETS: Dict[str, Dict[str, Any]] = {
             "weight_priority_high": 3000,
             "weight_priority_medium": 1000,
             "weight_priority_low": 200,
+            "weight_priority_value": 60,
             "weight_preferred_deviation": 10,
             "weight_disruption": 150,
             "weight_resource_contention": 150,
@@ -306,6 +310,12 @@ class CP_SAT_Optimizer:
                 w_asset = getattr(w, "asset_id", None) or (w.get("asset_id") if isinstance(w, dict) else None) or w_id
 
                 eff_prio = _apply_priority_override(w_id, w_prio, req.priority_overrides)
+                p_val = getattr(w, "priority_value", None) or (w.get("priority_value") if isinstance(w, dict) else None)
+                if p_val is None and req.priority_overrides and w_id in req.priority_overrides:
+                    try:
+                        p_val = float(req.priority_overrides[w_id])
+                    except (ValueError, TypeError):
+                        pass
                 item = {
                     "request_id": w_id,
                     "asset_id": w_asset,
@@ -317,7 +327,7 @@ class CP_SAT_Optimizer:
                     "preferred_start": str(w_start),
                     "equipment": w_equip,
                     "required_resources": w_res,
-                    "priority_value": getattr(w, "priority_value", None) or (w.get("priority_value") if isinstance(w, dict) else None),
+                    "priority_value": p_val,
                     "priority_enrichment": getattr(w, "priority_enrichment", None) or (w.get("priority_enrichment") if isinstance(w, dict) else None),
                 }
                 active.append(item)
@@ -367,11 +377,17 @@ class CP_SAT_Optimizer:
         self,
         m: MaintenanceRecord,
         req_id: str,
-        overrides: Optional[Dict[str, str]],
+        overrides: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """Construct normalized dictionary for a candidate maintenance request."""
         pref_str = m.preferred_start.strftime("%H:%M") if hasattr(m.preferred_start, "strftime") else str(m.preferred_start)
         eff_prio = _apply_priority_override(req_id, m.priority, overrides)
+        p_val = getattr(m, "priority_value", None)
+        if p_val is None and overrides and req_id in overrides:
+            try:
+                p_val = float(overrides[req_id])
+            except (ValueError, TypeError):
+                pass
         return {
             "request_id": req_id,
             "asset_id": m.asset_id,
@@ -383,7 +399,7 @@ class CP_SAT_Optimizer:
             "preferred_start": pref_str,
             "equipment": m.equipment,
             "required_resources": m.required_resources,
-            "priority_value": getattr(m, "priority_value", None),
+            "priority_value": p_val,
             "priority_enrichment": getattr(m, "priority_enrichment", None),
         }
 
@@ -391,11 +407,17 @@ class CP_SAT_Optimizer:
         self,
         b: BlockRecord,
         req_id: str,
-        overrides: Optional[Dict[str, str]],
+        overrides: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """Construct normalized dictionary for a candidate block request."""
         dur = _calculate_duration_minutes(b.requested_start, b.requested_end)
         eff_prio = _apply_priority_override(req_id, b.priority, overrides)
+        p_val = getattr(b, "priority_value", None)
+        if p_val is None and overrides and req_id in overrides:
+            try:
+                p_val = float(overrides[req_id])
+            except (ValueError, TypeError):
+                pass
         return {
             "request_id": req_id,
             "asset_id": None,
@@ -407,7 +429,7 @@ class CP_SAT_Optimizer:
             "preferred_start": b.requested_start,
             "equipment": None,
             "required_resources": 1,
-            "priority_value": getattr(b, "priority_value", None),
+            "priority_value": p_val,
             "priority_enrichment": getattr(b, "priority_enrichment", None),
         }
 
@@ -513,6 +535,7 @@ class CP_SAT_Optimizer:
                             "fit_score": 1.0,
                             "is_preferred_match": True,
                             "priority": r_item["priority"],
+                            "priority_value": r_item.get("priority_value"),
                             "equipment": r_item["equipment"],
                             "required_resources": r_item["required_resources"],
                         }
@@ -552,6 +575,7 @@ class CP_SAT_Optimizer:
                         "fit_score": fit,
                         "is_preferred_match": (dev_mins <= 15),
                         "priority": r_item["priority"],
+                        "priority_value": r_item.get("priority_value"),
                         "equipment": r_item["equipment"],
                         "required_resources": r_item["required_resources"],
                     }
@@ -581,6 +605,7 @@ class CP_SAT_Optimizer:
                         "fit_score": slot.fit_score,
                         "is_preferred_match": slot.is_preferred_match,
                         "priority": r_item["priority"],
+                        "priority_value": r_item.get("priority_value"),
                         "equipment": r_item["equipment"],
                         "required_resources": r_item["required_resources"],
                     }
@@ -622,6 +647,7 @@ class CP_SAT_Optimizer:
             is_shifted=is_shifted,
             priority_value=r_item.get("priority_value"),
             priority_enrichment=r_item.get("priority_enrichment"),
+            priority_contribution=meta.get("priority_contribution"),
         )
 
     def _build_unscheduled_block(
