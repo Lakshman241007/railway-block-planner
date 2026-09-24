@@ -124,6 +124,9 @@ class MaintenanceRepository:
         if isinstance(data.get("requested_date"), str):
             data["requested_date"] = date.fromisoformat(data["requested_date"])
 
+        valid_cols = {c.name for c in Maintenance.__table__.columns}
+        data = {k: v for k, v in data.items() if k in valid_cols}
+
         record = Maintenance(**data)
         self.db.add(record)
         self.db.commit()

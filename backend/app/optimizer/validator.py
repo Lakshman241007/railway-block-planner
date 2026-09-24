@@ -179,13 +179,17 @@ def validate_final_plan(
                     target_date=h_date,
                     proposed_schedule=scheduled,
                 )
-                conflicts_total += c_rep.total_conflicts
+                from backend.app.scheduler.schemas import ConflictType, ConflictSeverity
                 for c in c_rep.conflicts:
-                    from backend.app.scheduler.schemas import ConflictType
+                    # LOW-severity buffer violations are advisory; exclude from hard count
+                    if c.conflict_type == ConflictType.SAFETY_BUFFER_VIOLATION and c.severity == ConflictSeverity.LOW:
+                        headway_violations += 1
+                        continue
                     if c.conflict_type == ConflictType.SAFETY_BUFFER_VIOLATION:
                         headway_violations += 1
                     elif c.conflict_type == ConflictType.RESOURCE_CONTENTION:
                         equipment_violations += 1
+                    conflicts_total += 1
 
             if conflicts_total > 0:
                 violations.append(

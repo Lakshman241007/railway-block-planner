@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import date, time
 from enum import Enum
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -41,6 +41,105 @@ class MaintenanceStatus(str, Enum):
     APPROVED = "Approved"
     COMPLETED = "Completed"
     CANCELLED = "Cancelled"
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — AI Prioritization Enrichment Contract
+# ---------------------------------------------------------------------------
+
+class PriorityEnrichment(BaseModel):
+    """
+    Priority Assessment Enrichment Contract (Phase 5).
+
+    Encapsulates the currently-supported priority factors and the final derived score
+    consumed by downstream scheduling and CP-SAT optimization.
+
+    Architecture
+    ────────────
+    Current supported factors (inputs):
+        urgency        — How time-sensitive the maintenance work is.
+        criticality    — Safety/structural importance of the asset or track section.
+        overdue_factor — Temporal signal representing how overdue the maintenance is.
+
+    Derived result (output):
+        priority_value — The single authoritative numerical priority score produced by
+                         combining the above factors, supplied by AIPrioritizer.scorer
+                         or a future rules/ML implementation.  It is NOT a manually-
+                         provided peer input alongside the factors.
+
+    Explainability
+    ──────────────
+    The three factor fields are preserved alongside priority_value so that the system
+    can always explain:
+      "This work received this priority because of its urgency, criticality,
+       and overdue status."
+
+    Future Extensions (NOT currently implemented)
+    ─────────────────────────────────────────────
+    asset_availability_impact — Impact on asset operational availability.
+    operational_impact        — Disruption to wider network operations.
+
+    These factors require richer railway asset/network relationship data and/or
+    historical operational datasets that are not yet available to the system.
+    They will be introduced in a future phase once the required data pipelines
+    and/or AI/ML feature extraction capabilities are in place.
+
+    PROTOTYPE DISCLAIMER
+    ────────────────────
+    No ML inference model is currently implemented.  This contract acts as the
+    integration adapter for a future rules-based or ML scoring component.
+    """
+
+    urgency: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Normalized urgency metric (0.0 to 1.0). "
+            "Reflects how time-sensitive the maintenance work is based on deadline proximity "
+            "and deferral risk derived from available maintenance data."
+        ),
+    )
+    criticality: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Asset/track safety criticality rating (0.0 to 1.0). "
+            "Reflects the safety or structural importance classification available "
+            "from the maintenance or asset record."
+        ),
+    )
+    overdue_factor: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Temporal overdue multiplier (≥ 0.0). "
+            "A derived signal representing how overdue the maintenance is relative to "
+            "its scheduled or recommended interval."
+        ),
+    )
+    priority_value: float = Field(
+        ...,
+        description=(
+            "Derived authoritative numerical priority score for downstream scheduling. "
+            "This is the OUTPUT produced by combining urgency, criticality, and "
+            "overdue_factor via AIPrioritizer.scorer or a future rules/ML implementation. "
+            "It is NOT a manually-provided input alongside the factor fields."
+        ),
+    )
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Provenance details, model version, feature importances, or any other "
+            "explainability context attached by the scoring implementation."
+        ),
+    )
+
+    # extra="allow" preserves forward-compatibility: future fields (e.g. asset_availability_impact,
+    # operational_impact) can be passed through without causing schema validation failures
+    # once the required data pipelines are available.
+    model_config = {"str_strip_whitespace": True, "extra": "allow"}
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +230,14 @@ class MaintenanceRecord(BaseModel):
         default=None,
         description="Name of the originating data source (e.g. 'smms')",
     )
+    priority_enrichment: Optional[PriorityEnrichment] = Field(
+        default=None,
+        description="AI prioritization enrichment contract containing explainable factors and priority_value",
+    )
+    priority_value: Optional[float] = Field(
+        default=None,
+        description="Authoritative numerical priority score (extracted from priority_enrichment if available)",
+    )
 
     # --- extra validators -------------------------------------------------
 
@@ -152,6 +259,7 @@ class MaintenanceRecord(BaseModel):
 
     model_config = {
         "str_strip_whitespace": True,
+        "extra": "allow",
     }
 
 

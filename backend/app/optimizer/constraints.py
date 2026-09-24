@@ -103,26 +103,12 @@ def add_track_overlap_constraints(
     return constraint_count
 
 
-def add_equipment_capacity_constraints(
-    model: cp_model.CpModel,
-    slot_vars: Dict[Tuple[str, str], cp_model.IntVar],
+def _group_slots_by_equipment(
     slot_metadata: Dict[str, Dict[str, Any]],
     resource_capacities: Dict[str, int],
-) -> int:
-    """
-    Constraint F: Resource & Specialized Equipment capacity constraint.
-    
-    For each equipment type (e.g. 'Track Tamper', 'OHE Car') with capacity C_eq:
-    At any point in absolute time across the planning horizon, the sum of active
-    maintenance blocks requiring that equipment cannot exceed C_eq.
-    """
-    constraint_count = 0
-    if not resource_capacities or not slot_metadata:
-        return 0
-
+) -> Dict[str, List[Tuple[str, Dict[str, Any], int, int]]]:
+    """Group candidate slots by equipment type and compute absolute planning timeline intervals."""
     base_date = min(meta["service_date"] for meta in slot_metadata.values())
-
-    # Group slots by equipment_type across the horizon
     equip_groups: Dict[str, List[Tuple[str, Dict[str, Any], int, int]]] = {}
 
     for s_id, meta in slot_metadata.items():
@@ -136,32 +122,66 @@ def add_equipment_capacity_constraints(
                 abs_end = day_diff * 1440 + meta["end_minutes"]
                 equip_groups.setdefault(norm_eq, []).append((s_id, meta, abs_start, abs_end))
 
+    return equip_groups
+
+
+def _add_sweep_line_capacity_constraints(
+    model: cp_model.CpModel,
+    slot_vars: Dict[Tuple[str, str], cp_model.IntVar],
+    items: List[Tuple[str, Dict[str, Any], int, int]],
+    cap: int,
+) -> int:
+    """Enforce equipment capacity over discrete intervals using a sweep-line algorithm."""
+    added = 0
+    time_points: Set[int] = set()
+    for _, _, abs_s, abs_e in items:
+        time_points.add(abs_s)
+        time_points.add(abs_e)
+
+    sorted_times = sorted(list(time_points))
+    for t_idx in range(len(sorted_times) - 1):
+        t_start = sorted_times[t_idx]
+        t_end = sorted_times[t_idx + 1]
+
+        concurrent_vars = []
+        for s_id, meta, abs_s, abs_e in items:
+            if abs_s <= t_start and abs_e >= t_end:
+                var = slot_vars.get((meta["request_id"], s_id))
+                if var is not None:
+                    concurrent_vars.append(var)
+
+        if len(concurrent_vars) > cap:
+            model.Add(sum(concurrent_vars) <= cap)
+            added += 1
+
+    return added
+
+
+def add_equipment_capacity_constraints(
+    model: cp_model.CpModel,
+    slot_vars: Dict[Tuple[str, str], cp_model.IntVar],
+    slot_metadata: Dict[str, Dict[str, Any]],
+    resource_capacities: Dict[str, int],
+) -> int:
+    """
+    Constraint F: Resource & Specialized Equipment capacity constraint.
+    
+    For each equipment type (e.g. 'Track Tamper', 'OHE Car') with capacity C_eq:
+    At any point in absolute time across the planning horizon, the sum of active
+    maintenance blocks requiring that equipment cannot exceed C_eq.
+    """
+    if not resource_capacities or not slot_metadata:
+        return 0
+
+    constraint_count = 0
+    equip_groups = _group_slots_by_equipment(slot_metadata, resource_capacities)
+
     for eq_name, items in equip_groups.items():
         cap = _get_equipment_capacity(eq_name, resource_capacities)
-        if cap is None or len(items) <= cap:
-            continue
-
-        # Extract absolute time events (start/end) for sweep-line contention intervals
-        time_points: Set[int] = set()
-        for _, _, abs_s, abs_e in items:
-            time_points.add(abs_s)
-            time_points.add(abs_e)
-
-        sorted_times = sorted(list(time_points))
-        for t_idx in range(len(sorted_times) - 1):
-            t_start = sorted_times[t_idx]
-            t_end = sorted_times[t_idx + 1]
-
-            concurrent_vars = []
-            for s_id, meta, abs_s, abs_e in items:
-                if abs_s <= t_start and abs_e >= t_end:
-                    var = slot_vars.get((meta["request_id"], s_id))
-                    if var is not None:
-                        concurrent_vars.append(var)
-
-            if len(concurrent_vars) > cap:
-                model.Add(sum(concurrent_vars) <= cap)
-                constraint_count += 1
+        if cap is not None and len(items) > cap:
+            constraint_count += _add_sweep_line_capacity_constraints(
+                model, slot_vars, items, cap
+            )
 
     return constraint_count
 

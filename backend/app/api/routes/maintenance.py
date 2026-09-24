@@ -84,6 +84,43 @@ def get_maintenance_by_asset(
     }
 
 
+def _validate_maintenance_patch_values(update_values: Dict[str, Any]) -> None:
+    """Validate duration, priority, and status before updating maintenance record."""
+    # A zero or negative duration is physically impossible for track maintenance possessions;
+    # reject non-positive values at the boundary to prevent corrupted schedule windows.
+    if "duration_minutes" in update_values and update_values["duration_minutes"] <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="duration_minutes must be a positive integer greater than zero",
+        )
+
+    # Validate enum fields so the DB never stores an invalid value.
+    if "priority" in update_values:
+        allowed_priorities = [p.value for p in Priority]
+        if update_values["priority"] not in allowed_priorities:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Invalid priority '{update_values['priority']}'. "
+                    f"Allowed values: {allowed_priorities}"
+                ),
+            )
+
+    if "status" in update_values:
+        # Map 'Scheduled' (assigned by optimizer views) to 'Approved' for persistent storage
+        if update_values["status"] == "Scheduled":
+            update_values["status"] = MaintenanceStatus.APPROVED.value
+        allowed_statuses = [s.value for s in MaintenanceStatus]
+        if update_values["status"] not in allowed_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Invalid status '{update_values['status']}'. "
+                    f"Allowed values: {allowed_statuses}"
+                ),
+            )
+
+
 @router.patch(
     "/{id}",
     summary="Partially update a maintenance record",
@@ -122,39 +159,8 @@ def update_maintenance_record(
     }
 
     if not update_values:
-        # Nothing to update — return the record as-is.
         return {"data": existing.to_dict()}
 
-    # A zero or negative duration is physically impossible for track maintenance possessions;
-    # reject non-positive values at the boundary to prevent corrupted schedule windows.
-    if "duration_minutes" in update_values and update_values["duration_minutes"] <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="duration_minutes must be a positive integer greater than zero",
-        )
-
-    # Validate enum fields so the DB never stores an invalid value.
-    if "priority" in update_values:
-        allowed_priorities = [p.value for p in Priority]
-        if update_values["priority"] not in allowed_priorities:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    f"Invalid priority '{update_values['priority']}'. "
-                    f"Allowed values: {allowed_priorities}"
-                ),
-            )
-
-    if "status" in update_values:
-        allowed_statuses = [s.value for s in MaintenanceStatus]
-        if update_values["status"] not in allowed_statuses:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    f"Invalid status '{update_values['status']}'. "
-                    f"Allowed values: {allowed_statuses}"
-                ),
-            )
-
+    _validate_maintenance_patch_values(update_values)
     updated = repo.update(existing.id, update_values)
     return {"data": updated.to_dict()}
