@@ -1,21 +1,29 @@
 import React from 'react';
 
-export default function LoadingState({ message = 'Loading operational telemetry...' }) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '60px 20px',
-        gap: 16,
-      }}
-    >
-      <div className="radar-spinner" />
-      <div style={{ color: '#94a3b8', fontSize: '0.85rem', fontWeight: 500, letterSpacing: '0.3px' }}>
-        {message}
+/**
+ * Calm, professional loading indicator. Use the default spinner for page/
+ * panel loads; pass `variant="skeleton"` with `rows` for a list/table that
+ * is about to populate, so the layout doesn't jump once data arrives.
+ */
+export default function LoadingState({
+  message = 'Loading operational telemetry…',
+  variant = 'spinner',
+  rows = 4,
+}) {
+  if (variant === 'skeleton') {
+    return (
+      <div className="state-panel loading" style={{ alignItems: 'stretch', gap: 'var(--space-sm)' }}>
+        {Array.from({ length: rows }).map((_, i) => (
+          <div className="skeleton-row" key={i} />
+        ))}
       </div>
+    );
+  }
+
+  return (
+    <div className="state-panel loading">
+      <div className="radar-spinner" />
+      <div className="state-loading-label">{message}</div>
     </div>
   );
 }

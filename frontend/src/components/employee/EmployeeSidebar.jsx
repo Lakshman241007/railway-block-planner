@@ -1,6 +1,18 @@
 import React from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { EMPLOYEE_ROUTES, navigateTo } from '../../router';
+import {
+  IconDashboard,
+  IconSchedule,
+  IconBlocks,
+  IconMaintenance,
+  IconTrains,
+  IconForecast,
+  IconPlanStatus,
+  IconConflicts,
+  IconTrainBrand,
+  IconSwapRole,
+} from '../icons/SidebarIcons';
 
 export default function EmployeeSidebar({
   activePage,
@@ -15,14 +27,14 @@ export default function EmployeeSidebar({
   const { switchRole } = useAuth();
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: '◉', path: EMPLOYEE_ROUTES.DASHBOARD },
-    { id: 'schedule', label: 'Schedule', icon: '📅', path: EMPLOYEE_ROUTES.SCHEDULE },
-    { id: 'blocks', label: 'Block Status', icon: '🚧', path: EMPLOYEE_ROUTES.BLOCKS },
-    { id: 'maintenance', label: 'Maintenance', icon: '🛠', path: EMPLOYEE_ROUTES.MAINTENANCE },
-    { id: 'trains', label: 'Train Traffic', icon: '🚦', path: EMPLOYEE_ROUTES.TRAINS },
-    { id: 'forecast', label: 'Goods Forecast', icon: '📈', path: EMPLOYEE_ROUTES.FORECAST, badge: forecastCount > 0 ? forecastCount : null },
-    { id: 'plan-status', label: 'Plan Status', icon: '📊', path: EMPLOYEE_ROUTES.PLAN_STATUS },
-    { id: 'conflicts', label: 'Conflicts', icon: '⚠', path: EMPLOYEE_ROUTES.CONFLICTS, badge: conflictCount > 0 ? conflictCount : null, isAlert: true },
+    { id: 'dashboard', label: 'Dashboard', icon: IconDashboard, path: EMPLOYEE_ROUTES.DASHBOARD },
+    { id: 'schedule', label: 'Schedule', icon: IconSchedule, path: EMPLOYEE_ROUTES.SCHEDULE },
+    { id: 'blocks', label: 'Block Status', icon: IconBlocks, path: EMPLOYEE_ROUTES.BLOCKS },
+    { id: 'maintenance', label: 'Maintenance', icon: IconMaintenance, path: EMPLOYEE_ROUTES.MAINTENANCE },
+    { id: 'trains', label: 'Train Traffic', icon: IconTrains, path: EMPLOYEE_ROUTES.TRAINS },
+    { id: 'forecast', label: 'Goods Forecast', icon: IconForecast, path: EMPLOYEE_ROUTES.FORECAST, badge: forecastCount > 0 ? forecastCount : null },
+    { id: 'plan-status', label: 'Plan Status', icon: IconPlanStatus, path: EMPLOYEE_ROUTES.PLAN_STATUS },
+    { id: 'conflicts', label: 'Conflicts', icon: IconConflicts, path: EMPLOYEE_ROUTES.CONFLICTS, badge: conflictCount > 0 ? conflictCount : null, isAlert: true },
   ];
 
   const handleItemClick = (item) => {
@@ -37,7 +49,9 @@ export default function EmployeeSidebar({
   return (
     <aside className={`sidebar employee-sidebar ${mobileOpen ? 'mobile-open' : ''} ${collapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-header">
-        <div className="brand-icon" style={{ background: '#059669' }}>🚆</div>
+        <div className="brand-icon" style={{ background: '#059669' }}>
+          <IconTrainBrand />
+        </div>
         <div className="brand-info">
           <div className="brand-title">
             RAILWAY <span>PLANNER</span>
@@ -57,21 +71,26 @@ export default function EmployeeSidebar({
 
       <nav className="sidebar-nav">
         <div className="nav-section-title">Operations Monitoring</div>
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            id={`employee-nav-${item.id}`}
-            className={`nav-item ${activePage === item.id ? 'active' : ''}`}
-            onClick={() => handleItemClick(item)}
-            title={item.label}
-          >
-            <span className="nav-item-icon">{item.icon}</span>
-            <span>{item.label}</span>
-            {item.badge != null && (
-              <span className={`nav-badge ${item.isAlert ? '' : 'info'}`}>{item.badge}</span>
-            )}
-          </button>
-        ))}
+        {navItems.map((item) => {
+          const ItemIcon = item.icon;
+          return (
+            <button
+              key={item.id}
+              id={`employee-nav-${item.id}`}
+              className={`nav-item ${activePage === item.id ? 'active' : ''}`}
+              onClick={() => handleItemClick(item)}
+              title={item.label}
+            >
+              <span className="nav-item-icon">
+                <ItemIcon />
+              </span>
+              <span>{item.label}</span>
+              {item.badge != null && (
+                <span className={`nav-badge ${item.isAlert ? '' : 'info'}`}>{item.badge}</span>
+              )}
+            </button>
+          );
+        })}
       </nav>
 
       <div className="sidebar-footer">
@@ -84,7 +103,9 @@ export default function EmployeeSidebar({
           }}
           title="Switch view to Operator Control Center"
         >
-          <span className="switch-icon">🔄</span>
+          <span className="switch-icon">
+            <IconSwapRole />
+          </span>
           <div style={{ textAlign: 'left' }}>
             <div style={{ fontSize: '0.74rem', fontWeight: 600, color: '#e2e8f0' }}>Switch Role</div>
             <div style={{ fontSize: '0.66rem', color: '#94a3b8' }}>To Operator Controls</div>

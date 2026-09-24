@@ -16,12 +16,17 @@ export default function ConflictCard({ conflict, onResolveClick }) {
     }
   };
 
+  // Severity-weighted presentation: the more severe the conflict, the more
+  // visual pressure the card carries (border weight + icon), so a scan down
+  // a list of conflicts reads priority at a glance without extra text.
+  const isCritical = sev === 'critical';
+
   return (
-    <div className={`operation-card ${sevClass}`}>
+    <div className={`operation-card ${sevClass}`} style={isCritical ? { borderLeftWidth: 4 } : undefined}>
       <div className="card-header-row">
         <div>
           <div className="card-code" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>⚠</span>
+            <span>{isCritical ? '⛔' : '⚠'}</span>
             <span>{conflict.conflict_id || 'CONF-0001'}</span>
           </div>
           <div className="card-meta-text">{conflict.conflict_type || 'Train-Block Overlap'}</div>
@@ -32,19 +37,19 @@ export default function ConflictCard({ conflict, onResolveClick }) {
       </div>
 
       <div className="card-detail-box">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ color: '#94a3b8' }}>Location</span>
-          <span style={{ color: '#fff', fontWeight: 600 }}>{conflict.location}</span>
+        <div className="card-kv-row">
+          <span className="card-kv-label">Location</span>
+          <span className="card-kv-value">{conflict.location}</span>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ color: '#94a3b8' }}>Affected Entities</span>
-          <span className="table-cell-mono">
+        <div className="card-kv-row">
+          <span className="card-kv-label">Affected entities</span>
+          <span className="card-kv-value mono" style={{ color: 'var(--accent-bright)' }}>
             {conflict.entity1_type} ({conflict.entity1_id}) ⚡ {conflict.entity2_type} ({conflict.entity2_id})
           </span>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ color: '#94a3b8' }}>Collision Window</span>
-          <span className="table-cell-mono" style={{ color: '#f87171' }}>
+        <div className="card-kv-row">
+          <span className="card-kv-label">Collision window</span>
+          <span className="card-kv-value mono" style={{ color: '#f87171' }}>
             {conflict.start_time} → {conflict.end_time} ({conflict.overlap_minutes || 0}m overlap)
           </span>
         </div>
@@ -55,7 +60,7 @@ export default function ConflictCard({ conflict, onResolveClick }) {
 
       {conflict.suggested_action && (
         <div className="card-resolution-box">
-          <strong>💡 Recommended Resolution:</strong> {conflict.suggested_action}
+          <strong>💡 Recommended resolution:</strong> {conflict.suggested_action}
         </div>
       )}
     </div>

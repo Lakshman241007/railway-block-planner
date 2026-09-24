@@ -1,34 +1,28 @@
 import React from 'react';
 
+/**
+ * Standard empty state: tells the user what's empty, why it might be empty,
+ * and what they can do next. Never renders a fake/no-op action — pass
+ * `actionLabel` + `onAction` only when there is a real next step.
+ */
 export default function EmptyState({
-  title = 'No Records Found',
+  title = 'No records found',
   message = 'There are no active railway operations or maintenance items for this query.',
   actionLabel,
   onAction,
   icon = '📋',
 }) {
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '50px 20px',
-        textAlign: 'center',
-        gap: 12,
-        background: 'rgba(255, 255, 255, 0.01)',
-        border: '1px dashed #1e293b',
-        borderRadius: 8,
-      }}
-    >
-      <div style={{ fontSize: '2.2rem' }}>{icon}</div>
-      <div style={{ color: '#fff', fontWeight: 700, fontSize: '0.95rem' }}>{title}</div>
-      <div style={{ color: '#94a3b8', fontSize: '0.8rem', maxWidth: 400 }}>{message}</div>
-      {actionLabel && (
-        <button className="btn btn-secondary btn-sm" onClick={onAction} style={{ marginTop: 8 }}>
-          {actionLabel}
-        </button>
+    <div className="state-panel empty">
+      <div className="state-icon">{icon}</div>
+      <div className="state-title">{title}</div>
+      <div className="state-message">{message}</div>
+      {actionLabel && onAction && (
+        <div className="state-actions">
+          <button className="btn btn-secondary btn-sm" onClick={onAction}>
+            {actionLabel}
+          </button>
+        </div>
       )}
     </div>
   );

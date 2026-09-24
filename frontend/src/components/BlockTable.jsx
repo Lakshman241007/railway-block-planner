@@ -94,7 +94,7 @@ export default function BlockTable({
                 <th>Type</th>
                 <th>Date</th>
                 <th>Time Window</th>
-                <th>Duration</th>
+                <th className="col-numeric">Duration</th>
                 <th>Reason</th>
                 <th>Priority</th>
                 <th>Status</th>
@@ -104,10 +104,14 @@ export default function BlockTable({
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan="10" style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-secondary)' }}>
-                    <div style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🔍</div>
-                    <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.92rem' }}>No Matching Block Requests Found</div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>Try adjusting your search terms or status/priority filters.</div>
+                  <td colSpan="10" style={{ padding: 0 }}>
+                    <div className="state-panel empty" style={{ border: 'none', borderRadius: 0 }}>
+                      <div className="state-icon">🔍</div>
+                      <div className="state-title">No matching block requests</div>
+                      <div className="state-message">
+                        Nothing matches the current search and filters. Try a broader search term, or clear the status/priority filters above.
+                      </div>
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -130,10 +134,10 @@ export default function BlockTable({
                       <td className="table-cell-highlight">{b.location}</td>
                       <td>{b.block_type || b.asset_type || 'Track Block'}</td>
                       <td className="table-cell-mono">{b.requested_date || b.service_date}</td>
-                      <td className="table-cell-mono">
+                      <td className="table-cell-time">
                         {start} → {end}
                       </td>
-                      <td className="table-cell-mono">{dur}m</td>
+                      <td className="table-cell-numeric">{dur}m</td>
                       <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {b.reason || b.maintenance_type || 'Routine Possession'}
                       </td>

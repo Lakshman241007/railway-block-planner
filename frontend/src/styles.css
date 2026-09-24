@@ -1932,7 +1932,691 @@ body {
 .toast.warning { border-left: 4px solid var(--status-warning); }
 
 /* --------------------------------------------------------------------------
-   15. COMPREHENSIVE RESPONSIVE DESIGN & VIEWPORT BREAKPOINTS
+   16. TABLE ALIGNMENT UTILITIES (NUMERIC / TIME COLUMNS)
+   -------------------------------------------------------------------------- */
+/* Descriptive text stays left aligned (table default). Numeric and duration
+   values get deliberate right alignment with tabular figures so magnitudes
+   are easy to scan and compare down a column. */
+.table-cell-numeric {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text-primary);
+}
+
+.table th.col-numeric {
+  text-align: right;
+}
+
+/* Timestamps/time-windows: mono for legibility, kept left-aligned since they
+   read as a labelled range rather than a magnitude to sum or compare. */
+.table-cell-time {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-bright);
+}
+
+.table tbody tr.row-selected {
+  background: rgba(56, 189, 248, 0.09);
+}
+
+.table tbody tr.row-selected td {
+  border-bottom-color: rgba(56, 189, 248, 0.18);
+}
+
+/* --------------------------------------------------------------------------
+   17. CARD KEY/VALUE ROWS (OPERATIONAL CARD CONTENT HIERARCHY)
+   -------------------------------------------------------------------------- */
+.card-kv-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.card-kv-label {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  flex-shrink: 0;
+}
+
+.card-kv-value {
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-kv-value.mono {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------------
+   18. KPI CARD IMPORTANCE HIERARCHY
+   -------------------------------------------------------------------------- */
+/* Not every metric carries equal operational weight. `.featured` gives a
+   primary KPI (e.g. Active Conflicts) more visual mass; `.compact` recedes
+   secondary/contextual metrics. Default (no modifier) sits between the two. */
+.stat-card.featured {
+  padding: var(--space-lg) var(--space-xl);
+  min-height: 132px;
+  border-width: 1px;
+  background: linear-gradient(180deg, #16243f 0%, #0d1628 100%);
+}
+
+.stat-card.featured .stat-card-value {
+  font-size: 2.35rem;
+}
+
+.stat-card.featured .stat-card-header {
+  font-size: 0.74rem;
+}
+
+.stat-card.compact {
+  min-height: 84px;
+  padding: var(--space-sm) var(--space-md);
+  gap: 4px;
+}
+
+.stat-card.compact .stat-card-value {
+  font-size: 1.4rem;
+}
+
+.stat-card-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.stat-card-trend.up { color: var(--status-danger); }
+.stat-card-trend.down { color: var(--status-success); }
+.stat-card-trend.flat { color: var(--text-muted); }
+
+/* --------------------------------------------------------------------------
+   19. FILTERS — GROUPING & PROGRESSIVE DISCLOSURE
+   -------------------------------------------------------------------------- */
+.filter-toolbar-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  width: 100%;
+}
+
+.filter-more-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  color: var(--accent-bright);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 2px;
+  align-self: flex-start;
+}
+
+.filter-more-toggle:hover {
+  color: var(--accent-cyan);
+  text-decoration: underline;
+}
+
+.filter-secondary-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  padding-top: var(--space-sm);
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 var(--space-sm) 0 var(--space-md);
+  border-radius: var(--radius-full);
+  background: var(--accent-muted);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: var(--accent-bright);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.filter-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  font-size: 0.65rem;
+  line-height: 1;
+}
+
+.filter-chip-remove:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* --------------------------------------------------------------------------
+   20. TAB SYSTEM (UNDERLINE VARIANT FOR PAGE-LEVEL SECTIONS)
+   -------------------------------------------------------------------------- */
+/* Complements .segmented-control (pill switcher, section 6) for cases where
+   an underline rail communicates a wider set of module-level sections without
+   the heavier pill treatment. */
+.tab-rail {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+  flex-wrap: nowrap;
+}
+
+.tab-rail-item {
+  position: relative;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: var(--space-md) 2px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.tab-rail-item:hover {
+  color: #fff;
+}
+
+.tab-rail-item.active {
+  color: #fff;
+}
+
+.tab-rail-item.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent-bright);
+  border-radius: var(--radius-full);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+}
+
+.tab-rail-item .badge {
+  margin-left: 6px;
+}
+
+/* --------------------------------------------------------------------------
+   21. DROPDOWN / MENU SYSTEM
+   -------------------------------------------------------------------------- */
+.dropdown {
+  position: relative;
+  display: inline-flex;
+}
+
+.dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 200px;
+  max-width: min(320px, calc(100vw - 32px));
+  max-height: min(360px, calc(100vh - 120px));
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-xs);
+  z-index: 150;
+  animation: dropdownIn 0.12s ease;
+}
+
+.dropdown-menu.align-left {
+  right: auto;
+  left: 0;
+}
+
+@keyframes dropdownIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dropdown-item:hover,
+.dropdown-item:focus-visible {
+  background: rgba(56, 189, 248, 0.1);
+  color: #fff;
+}
+
+.dropdown-item.selected {
+  color: var(--accent-bright);
+  font-weight: 600;
+}
+
+.dropdown-item.danger {
+  color: #fca5a5;
+}
+
+.dropdown-item.danger:hover {
+  background: rgba(239, 68, 68, 0.14);
+  color: #fff;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: var(--space-xs) 4px;
+}
+
+.dropdown-section-label {
+  padding: var(--space-xs) var(--space-md) 4px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   22. ALERT SYSTEM (INFORMATION / WARNING / CRITICAL)
+   -------------------------------------------------------------------------- */
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-sm);
+  border: 1px solid;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.alert-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  margin-top: 1px;
+}
+
+.alert-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.alert-title {
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 2px;
+}
+
+.alert-message {
+  color: var(--text-secondary);
+}
+
+.alert-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.alert-dismiss {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 2px;
+}
+
+.alert-dismiss:hover {
+  color: #fff;
+}
+
+/* Information: quiet, low-alarm — for status/context notices */
+.alert-information {
+  background: var(--status-info-bg);
+  border-color: var(--status-info-border);
+}
+.alert-information .alert-icon { color: var(--status-info); }
+
+/* Warning: needs attention but not urgent */
+.alert-warning {
+  background: var(--status-warning-bg);
+  border-color: var(--status-warning-border);
+}
+.alert-warning .alert-icon { color: var(--status-warning); }
+
+/* Critical: attracts the eye via a solid left rail rather than saturating
+   the whole surface, so a critical alert doesn't make the page feel
+   aggressive when several are present. */
+.alert-critical {
+  background: var(--status-danger-bg);
+  border-color: var(--status-danger-border);
+  border-left: 3px solid var(--status-danger);
+}
+.alert-critical .alert-icon { color: var(--status-danger); }
+
+/* --------------------------------------------------------------------------
+   23. TOOLTIP SYSTEM
+   -------------------------------------------------------------------------- */
+.tooltip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.tooltip-bubble {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(2px);
+  background: #05070d;
+  border: 1px solid var(--border-medium);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 500;
+  line-height: 1.35;
+  padding: 6px 10px;
+  border-radius: var(--radius-xs);
+  white-space: nowrap;
+  max-width: 240px;
+  white-space: normal;
+  width: max-content;
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 120;
+}
+
+.tooltip-bubble::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #05070d;
+}
+
+.tooltip-wrap:hover .tooltip-bubble,
+.tooltip-wrap:focus-within .tooltip-bubble {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+.tooltip-bubble.pos-right {
+  bottom: auto;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%) translateX(-2px);
+}
+
+.tooltip-bubble.pos-right::after {
+  top: 50%;
+  left: 0;
+  transform: translate(-100%, -50%);
+  border-top-color: transparent;
+  border-right-color: #05070d;
+}
+
+.tooltip-wrap:hover .tooltip-bubble.pos-right,
+.tooltip-wrap:focus-within .tooltip-bubble.pos-right {
+  transform: translateY(-50%) translateX(0);
+}
+
+/* --------------------------------------------------------------------------
+   24. STATE PANELS (EMPTY / LOADING / ERROR) — SHARED SHELL
+   -------------------------------------------------------------------------- */
+.state-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4xl) var(--space-xl);
+  text-align: center;
+  gap: var(--space-sm);
+  border-radius: var(--radius-md);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.state-panel.empty {
+  background: rgba(255, 255, 255, 0.012);
+  border: 1px dashed var(--border-default);
+}
+
+.state-panel.error {
+  background: var(--status-danger-bg);
+  border: 1px solid var(--status-danger-border);
+}
+
+.state-panel.loading {
+  padding: var(--space-3xl) var(--space-xl);
+}
+
+.state-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  margin-bottom: 2px;
+}
+
+.state-panel.empty .state-icon {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+.state-panel.error .state-icon {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid var(--status-danger-border);
+  color: #f87171;
+}
+
+.state-title {
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.94rem;
+}
+
+.state-panel.error .state-title {
+  color: #f87171;
+}
+
+.state-message {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  max-width: 420px;
+  line-height: 1.5;
+}
+
+.state-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.state-loading-label {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+/* Single deliberate rotation — a sweeping radar rail rather than a busy
+   multi-element spinner, to keep loading states calm. */
+.radar-spinner {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 2px solid var(--border-subtle);
+  border-top-color: var(--accent-bright);
+  animation: radarSpin 0.9s linear infinite;
+}
+
+@keyframes radarSpin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .radar-spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* Skeleton rows for list/table content about to populate */
+.skeleton-row {
+  height: 38px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--bg-card) 0%,
+    var(--bg-card-hover) 50%,
+    var(--bg-card) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeletonSweep 1.6s ease-in-out infinite;
+}
+
+@keyframes skeletonSweep {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-row {
+    animation: none;
+    background: var(--bg-card);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   25. CONFIRMATION DIALOG (MODAL VARIANT)
+   -------------------------------------------------------------------------- */
+/* Built on top of .modal-dialog — adds a severity icon and a clear
+   primary/secondary action split so destructive actions read distinctly
+   from routine confirmations. */
+.confirm-dialog {
+  max-width: 420px;
+}
+
+.confirm-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-md);
+  padding: var(--space-xl) var(--space-lg) var(--space-sm);
+}
+
+.confirm-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  flex-shrink: 0;
+}
+
+.confirm-icon.danger {
+  background: var(--status-danger-bg);
+  border: 1px solid var(--status-danger-border);
+  color: #f87171;
+}
+
+.confirm-icon.warning {
+  background: var(--status-warning-bg);
+  border: 1px solid var(--status-warning-border);
+  color: var(--status-warning);
+}
+
+.confirm-icon.neutral {
+  background: var(--status-info-bg);
+  border: 1px solid var(--status-info-border);
+  color: var(--status-info);
+}
+
+.confirm-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.confirm-message {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.confirm-footer {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
+  flex-wrap: wrap;
+}
+
+.confirm-footer .btn {
+  min-width: 108px;
+}
+
+/* --------------------------------------------------------------------------
+   26. COMPREHENSIVE RESPONSIVE DESIGN & VIEWPORT BREAKPOINTS
    -------------------------------------------------------------------------- */
 
 /* ── Laptop / Intermediate Breakpoint (≤ 1200px) ────────────────────────── */
@@ -2124,5 +2808,19 @@ body {
 
   .header-page-title {
     font-size: 0.88rem;
+  }
+
+  .dropdown-menu {
+    right: 0;
+    left: auto;
+    min-width: 180px;
+  }
+
+  .confirm-dialog {
+    max-width: calc(100vw - 16px);
+  }
+
+  .stat-card.featured .stat-card-value {
+    font-size: 1.9rem;
   }
 }

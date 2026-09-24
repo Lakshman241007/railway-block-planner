@@ -1,21 +1,34 @@
 import React from 'react';
+import {
+  IconDashboard,
+  IconSchedule,
+  IconBlocks,
+  IconMaintenance,
+  IconTrains,
+  IconForecast,
+  IconOptimization,
+  IconConflicts,
+  IconTrainBrand,
+} from './icons/SidebarIcons';
 
 export default function Sidebar({ activePage, setActivePage, isOnline = true, conflictCount = 0, forecastCount = 0 }) {
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: '◉' },
-    { id: 'schedule', label: 'Schedule', icon: '📅' },
-    { id: 'optimization', label: 'Optimization', icon: '⚡' },
-    { id: 'blocks', label: 'Block Requests', icon: '🚧' },
-    { id: 'maintenance', label: 'Maintenance', icon: '🛠' },
-    { id: 'trains', label: 'Train Traffic', icon: '🚦' },
-    { id: 'forecast', label: 'Goods Forecast', icon: '📈', badge: forecastCount > 0 ? forecastCount : null },
-    { id: 'conflicts', label: 'Conflicts', icon: '⚠', badge: conflictCount > 0 ? conflictCount : null, isAlert: true },
+    { id: 'dashboard', label: 'Dashboard', icon: IconDashboard },
+    { id: 'schedule', label: 'Schedule', icon: IconSchedule },
+    { id: 'blocks', label: 'Block Requests', icon: IconBlocks },
+    { id: 'trains', label: 'Train Traffic', icon: IconTrains },
+    { id: 'forecast', label: 'Goods Forecast', icon: IconForecast, badge: forecastCount > 0 ? forecastCount : null },
+    { id: 'conflicts', label: 'Conflicts', icon: IconConflicts, badge: conflictCount > 0 ? conflictCount : null, isAlert: true },
+    { id: 'optimization', label: 'Optimization', icon: IconOptimization },
+    { id: 'maintenance', label: 'Maintenance', icon: IconMaintenance },
   ];
 
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <div className="brand-icon">🚆</div>
+        <div className="brand-icon">
+          <IconTrainBrand />
+        </div>
         <div className="brand-info">
           <div className="brand-title">
             RAILWAY <span>PLANNER</span>
@@ -26,19 +39,24 @@ export default function Sidebar({ activePage, setActivePage, isOnline = true, co
 
       <nav className="sidebar-nav">
         <div className="nav-section-title">Operational Navigation</div>
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            className={`nav-item ${activePage === item.id ? 'active' : ''}`}
-            onClick={() => setActivePage(item.id)}
-          >
-            <span className="nav-item-icon">{item.icon}</span>
-            <span>{item.label}</span>
-            {item.badge != null && (
-              <span className={`nav-badge ${item.isAlert ? '' : 'info'}`}>{item.badge}</span>
-            )}
-          </button>
-        ))}
+        {navItems.map((item) => {
+          const ItemIcon = item.icon;
+          return (
+            <button
+              key={item.id}
+              className={`nav-item ${activePage === item.id ? 'active' : ''}`}
+              onClick={() => setActivePage(item.id)}
+            >
+              <span className="nav-item-icon">
+                <ItemIcon />
+              </span>
+              <span>{item.label}</span>
+              {item.badge != null && (
+                <span className={`nav-badge ${item.isAlert ? '' : 'info'}`}>{item.badge}</span>
+              )}
+            </button>
+          );
+        })}
       </nav>
 
       <div className="sidebar-footer">

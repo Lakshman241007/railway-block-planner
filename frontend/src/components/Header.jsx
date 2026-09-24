@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAuth } from '../auth/AuthContext';
+import Tooltip from './Tooltip';
 
 export default function Header({
   pageTitle,
@@ -35,15 +36,16 @@ export default function Header({
 
         {/* Desktop Sidebar Collapse Toggle */}
         {onToggleSidebar && (
-          <button
-            type="button"
-            className="btn btn-secondary btn-icon-only btn-xs btn-sidebar-collapse"
-            onClick={onToggleSidebar}
-            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={sidebarCollapsed ? "Expand sidebar (full view)" : "Collapse sidebar (compact view)"}
-          >
-            {sidebarCollapsed ? '▶' : '◀'}
-          </button>
+          <Tooltip label={sidebarCollapsed ? "Expand sidebar (full view)" : "Collapse sidebar (compact view)"}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-icon-only btn-xs btn-sidebar-collapse"
+              onClick={onToggleSidebar}
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {sidebarCollapsed ? '▶' : '◀'}
+            </button>
+          </Tooltip>
         )}
 
         <h2 className="header-page-title">
@@ -107,14 +109,16 @@ export default function Header({
 
         {/* Refresh Button */}
         {onRefresh && (
-          <button
-            className="btn btn-secondary btn-icon-only btn-sm"
-            onClick={onRefresh}
-            title="Refresh operational data feed"
-            id="header-refresh-btn"
-          >
-            🔄
-          </button>
+          <Tooltip label="Refresh operational data feed">
+            <button
+              className="btn btn-secondary btn-icon-only btn-sm"
+              onClick={onRefresh}
+              aria-label="Refresh operational data feed"
+              id="header-refresh-btn"
+            >
+              🔄
+            </button>
+          </Tooltip>
         )}
 
         {/* Role Switcher Pill */}
