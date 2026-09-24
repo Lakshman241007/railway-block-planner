@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.dependencies import get_db
 from backend.app.api.routes import blocks, forecast, maintenance, movements, plans, scheduler, timetable, trains
+from backend.app.api.routes.phase9_review import conflicts_router as phase9_conflicts_router, plans_review_router as phase9_plans_router
 from backend.app.database.connection import SessionLocal, init_db
 from backend.app.database.seed import seed_database
 
@@ -109,6 +110,8 @@ def health_check() -> Dict[str, Any]:
 app.include_router(trains.router, prefix="/api")
 app.include_router(maintenance.router, prefix="/api")
 app.include_router(blocks.router, prefix="/api")
+app.include_router(phase9_conflicts_router, prefix="/api")  # Phase 9: conflict review (before scheduler)
+app.include_router(phase9_plans_router, prefix="/api")       # Phase 9: plan verification (before plans)
 app.include_router(plans.router, prefix="/api")
 app.include_router(forecast.router, prefix="/api")
 app.include_router(scheduler.router, prefix="/api")
