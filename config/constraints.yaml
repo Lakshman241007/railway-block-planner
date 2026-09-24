@@ -32,16 +32,27 @@ resource_capacities:
   "General": 5
 
 # CP-SAT Multi-Objective Weights
-# Maximize: sum(W_scheduled + W_priority[p] - W_deviation * abs(start - pref) - W_disruption * (1 - fit))
+#
+# Single-priority rule (XOR — mutually exclusive paths):
+#   Primary path  — weight_priority_value × priority_value
+#       Applied when priority_value is not None.
+#       Categorical label weights are excluded when this path is active.
+#   Legacy fallback — weight_priority_critical / high / medium / low
+#       Applied ONLY when priority_value is None.
+#       Preserves backward compatibility for unscored legacy records.
+#       Never combined with the primary numerical path.
+#
+# Maximize: W_scheduled + priority_utility - W_deviation×|Δstart| - W_disruption×(1-fit)
 objective_weights:
   weight_scheduled: 10000
-  weight_priority_critical: 5000
-  weight_priority_high: 2500
-  weight_priority_medium: 1000
-  weight_priority_low: 200
-  weight_preferred_deviation: 5        # penalty per minute of deviation from preferred start
-  weight_disruption: 50                 # penalty for slot fit degradation
-  weight_resource_contention: 100       # penalty multiplier for high-resource jobs
+  weight_priority_critical: 5000      # [legacy fallback] used only when priority_value is None
+  weight_priority_high: 2500          # [legacy fallback] used only when priority_value is None
+  weight_priority_medium: 1000        # [legacy fallback] used only when priority_value is None
+  weight_priority_low: 200            # [legacy fallback] used only when priority_value is None
+  weight_priority_value: 50           # [primary] scaling multiplier for the single numerical priority signal
+  weight_preferred_deviation: 5       # penalty per minute of deviation from preferred start
+  weight_disruption: 50               # penalty for slot fit degradation
+  weight_resource_contention: 100     # penalty multiplier for high-resource jobs
 
 # OR-Tools CP-SAT Solver Settings
 solver:

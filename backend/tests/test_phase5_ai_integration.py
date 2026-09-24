@@ -2,7 +2,11 @@
 Phase 5 — AI Prioritization Integration Test Suite.
 
 Verifies:
-1. Canonical PriorityEnrichment contract validation (urgency, criticality, overdue_factor, impacts, priority_value, metadata).
+1. Canonical PriorityEnrichment contract validation (urgency, criticality, overdue_factor, priority_value, metadata).
+   - asset_availability_impact and operational_impact are NOT part of the current contract;
+     they are future extensions and are not tested here.
+   - priority_value is the DERIVED result of the scorer combining the three factor fields.
+     It is the single numerical optimization signal consumed by CP-SAT.
 2. MaintenanceRecord enrichment and backward compatibility.
 3. BlockPlanner propagation (MonthlyPlan, WeeklyPlan, DailySchedulingProblem, CandidateWorkItem).
 4. DailyScheduler candidate matching (WorkBlockMatch compatibility_details["ai_priority"]).
@@ -49,8 +53,6 @@ def sample_enrichment() -> PriorityEnrichment:
         urgency=0.92,
         criticality=0.88,
         overdue_factor=1.45,
-        asset_availability_impact="High",
-        operational_impact="Major",
         priority_value=94.5,
         metadata={"model_version": "v1-alpha", "feature_importance": {"overdue": 0.6}},
     )
@@ -81,13 +83,16 @@ def sample_maintenance_record(target_date: date) -> MaintenanceRecord:
 
 class TestPriorityEnrichmentContract:
     def test_valid_enrichment_instantiation(self, sample_enrichment: PriorityEnrichment):
+        """Verify that all currently-supported fields are accepted and stored correctly."""
         assert sample_enrichment.urgency == 0.92
         assert sample_enrichment.criticality == 0.88
         assert sample_enrichment.overdue_factor == 1.45
-        assert sample_enrichment.asset_availability_impact == "High"
-        assert sample_enrichment.operational_impact == "Major"
         assert sample_enrichment.priority_value == 94.5
         assert sample_enrichment.metadata["model_version"] == "v1-alpha"
+        # Confirm that the unsupported future fields (asset_availability_impact,
+        # operational_impact) are NOT present as typed attributes on the current contract.
+        assert not hasattr(PriorityEnrichment.model_fields, "asset_availability_impact")
+        assert not hasattr(PriorityEnrichment.model_fields, "operational_impact")
 
     def test_enrichment_validation_ranges(self):
         # Urgency must be between 0.0 and 1.0

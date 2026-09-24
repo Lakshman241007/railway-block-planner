@@ -4,8 +4,24 @@ AI Prioritization Adapter and Contract Interface (Phase 5).
 DISCLAIMER:
 AI integration contract prepared, but no AI/ML inference model is currently implemented.
 This module provides the canonical integration adapter and data contracts for
-future ML/AI prioritization models. When AI enrichment is absent or an error occurs,
-it gracefully falls back to legacy Priority rules without fabricating arbitrary default scores.
+future ML/AI prioritization models.
+
+Conceptual model:
+    Priority Factors (inputs)
+        urgency          — time-sensitivity derived from maintenance/deadline data
+        criticality      — asset safety importance from maintenance/asset records
+        overdue_factor   — temporal signal: how overdue the maintenance is
+                ↓
+        AIPrioritizer.scorer  (future rules-based or ML implementation)
+                ↓
+        priority_value   — derived authoritative numerical score consumed by CP-SAT
+
+Future factors (NOT currently supported, require richer data/AI capability):
+    asset_availability_impact — needs asset/network relationship data
+    operational_impact        — needs historical operational datasets
+
+When AI enrichment is absent or scoring fails, the adapter gracefully falls back
+to the legacy Priority enum without fabricating arbitrary default scores.
 """
 
 from __future__ import annotations
@@ -22,8 +38,13 @@ class AIPrioritizer:
     """
     Contract interface and adapter for AI Prioritization in the Railway Block Planner pipeline.
 
-    Connects external AI/ML priority predictions with MaintenanceRecord models
-    and ensures transparent explainability factor preservation downstream.
+    Connects external rules-based or ML/AI scoring implementations with MaintenanceRecord models.
+    The scorer's responsibility is to derive priority_value from the three currently-supported
+    priority factors (urgency, criticality, overdue_factor) and attach them as a
+    PriorityEnrichment payload for explainability and downstream CP-SAT consumption.
+
+    When no scorer is registered, or when scoring fails, the adapter falls back gracefully
+    to the legacy categorical Priority without fabricating an arbitrary numerical score.
     """
 
     def __init__(

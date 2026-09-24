@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Any, Dict, List, Optional
+import uuid
 
 from pydantic import BaseModel, Field
 
@@ -20,6 +21,33 @@ from backend.app.scheduler.schemas import (
     MaintenanceScheduleItem,
     ScheduleResult,
 )
+
+
+class MonthlyPlanRequest(BaseModel):
+    """Request parameters for generating tactical 30-day monthly plan."""
+    target_date: Optional[date] = Field(default=None, description="Start date of the monthly horizon (default: today)")
+    horizon_days: int = Field(default=30, ge=28, le=31, description="Horizon length in days (28-31)")
+
+    model_config = {"str_strip_whitespace": True}
+
+
+class WeeklyPlanRequest(BaseModel):
+    """Request parameters for generating tactical 7-day weekly plan."""
+    target_date: Optional[date] = Field(default=None, description="Start date of the weekly horizon (default: today)")
+    horizon_days: int = Field(default=7, ge=1, le=14, description="Horizon length in days (1-14)")
+
+    model_config = {"str_strip_whitespace": True}
+
+
+class DailyProblemRequest(BaseModel):
+    """Request parameters for preparing canonical DailySchedulingProblem from operational data."""
+    target_date: Optional[date] = Field(default=None, description="Target service date (default: today)")
+    buffer_minutes: int = Field(default=15, ge=0, le=60, description="Safety headway buffer in minutes")
+    priority_filter: Optional[str] = Field(default=None, description="Optional priority filter (Low, Medium, High, Critical)")
+    location_filter: Optional[str] = Field(default=None, description="Optional corridor/section substring filter")
+    include_forecast: bool = Field(default=True, description="Whether to include goods train forecasts")
+
+    model_config = {"str_strip_whitespace": True}
 
 
 
@@ -234,7 +262,10 @@ class DailySchedulingProblem(BaseModel):
     for a single target scheduling date.
     """
 
-    problem_id: str = Field(..., description="Unique daily problem identifier")
+    problem_id: str = Field(
+        default_factory=lambda: f"PROB-{uuid.uuid4().hex[:8].upper()}",
+        description="Unique daily problem identifier",
+    )
     target_date: date = Field(..., description="Target service date for scheduling")
     candidate_works: List[CandidateWorkItem] = Field(
         default_factory=list,

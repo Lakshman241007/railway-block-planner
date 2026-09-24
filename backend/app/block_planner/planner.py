@@ -575,7 +575,7 @@ class BlockPlanner:
                     "section": fc.section,
                     "forecasted_entry": fc.forecasted_entry,
                     "forecasted_exit": fc.forecasted_exit,
-                    "confidence": fc.confidence,
+                    "confidence": getattr(fc, "confidence_score", getattr(fc, "confidence", 1.0)),
                 })
 
         # 6. Operational restrictions
