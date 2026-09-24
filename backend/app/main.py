@@ -22,7 +22,17 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.app.api.dependencies import get_db
-from backend.app.api.routes import blocks, forecast, maintenance, movements, plans, scheduler, timetable, trains
+from backend.app.api.routes import (
+    blocks,
+    forecast,
+    maintenance,
+    movements,
+    plans,
+    prioritization,
+    scheduler,
+    timetable,
+    trains,
+)
 from backend.app.database.connection import SessionLocal, init_db
 from backend.app.database.seed import seed_database
 
@@ -114,7 +124,7 @@ app.include_router(forecast.router, prefix="/api")
 app.include_router(scheduler.router, prefix="/api")
 app.include_router(timetable.router, prefix="/api")
 app.include_router(movements.router, prefix="/api")
-
+app.include_router(prioritization.router, prefix="/api")
 
 # Alias /api/conflicts to scheduler.detect_conflicts for top-level access
 @app.api_route(
