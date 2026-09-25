@@ -286,6 +286,9 @@ class OptimizedPlan(Base):
     Stores the full OptimizationResult as JSON alongside key summary metadata
     so that plans can be retrieved by ID, by target date, or as the latest
     plan for a given date without re-running the solver.
+
+    Phase 9 additions: plan_status lifecycle (DRAFT → OPERATOR_REVIEW →
+    APPROVED → PUBLISHED) with approval/publication tracking metadata.
     """
 
     __tablename__ = "optimized_plans"
@@ -305,6 +308,13 @@ class OptimizedPlan(Base):
     generated_at = Column(DateTime, nullable=False, default=datetime.now, server_default=func.now())
     created_at = Column(DateTime, default=datetime.now, server_default=func.now())
 
+    # Phase 9 — Plan verification lifecycle
+    plan_status = Column(String(30), nullable=False, default="DRAFT", server_default="DRAFT")
+    approved_by = Column(String(100), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    plan_notes = Column(Text, nullable=True)
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert ORM model to summary dictionary (without full JSON payload)."""
         return {
@@ -322,7 +332,12 @@ class OptimizedPlan(Base):
             "wall_time_seconds": self.wall_time_seconds,
             "generated_at": self.generated_at.isoformat() if self.generated_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "plan_status": self.plan_status,
+            "approved_by": self.approved_by,
+            "approved_at": self.approved_at.isoformat() if self.approved_at else None,
+            "published_at": self.published_at.isoformat() if self.published_at else None,
+            "plan_notes": self.plan_notes,
         }
 
     def __repr__(self) -> str:
-        return f"<OptimizedPlan(plan_id={self.plan_id!r}, target_date={self.target_date!r}, status={self.solver_status!r})>"
+        return f"<OptimizedPlan(plan_id={self.plan_id!r}, target_date={self.target_date!r}, status={self.solver_status!r}, plan_status={self.plan_status!r})>"

@@ -31,6 +31,26 @@ function assignLanes(disciplineBlocks) {
   return { items: sorted, laneCount: Math.max(1, laneEnds.length) };
 }
 
+function TimelineLegend() {
+  const legendItems = [
+    { label: 'Critical', color: '#ef4444' },
+    { label: 'High', color: '#f97316' },
+    { label: 'Medium', color: '#eab308' },
+    { label: 'Low', color: '#10b981' },
+  ];
+
+  return (
+    <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', fontSize: '0.72rem', color: '#94a3b8' }}>
+      {legendItems.map((item) => (
+        <span key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ width: 9, height: 9, background: item.color, borderRadius: 2 }} />
+          {item.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export default function Timeline({
   blocks = [],
   targetDate,
@@ -64,20 +84,7 @@ export default function Timeline({
             Multi-discipline track possession timeline with continuous overnight block visualization
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', fontSize: '0.72rem', color: '#94a3b8' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 9, height: 9, background: '#ef4444', borderRadius: 2 }} /> Critical
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 9, height: 9, background: '#f97316', borderRadius: 2 }} /> High
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 9, height: 9, background: '#eab308', borderRadius: 2 }} /> Medium
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 9, height: 9, background: '#10b981', borderRadius: 2 }} /> Low
-          </span>
-        </div>
+        <TimelineLegend />
       </div>
 
       <div className="panel-body" style={{ padding: 12 }}>

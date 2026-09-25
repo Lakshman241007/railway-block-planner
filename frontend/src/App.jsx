@@ -7,7 +7,6 @@ import {
   navigateTo,
   resolveRoute,
 } from './router';
-
 // Component imports
 import Header from './components/Header';
 import OperatorSidebar from './components/operator/OperatorSidebar';
@@ -61,6 +60,7 @@ import {
   rejectConflict,
   deferConflict,
 } from './services/conflicts';
+import { updateScheduledBlockList } from './utils/scheduleSync';
 
 function AppContent() {
   const { role, isOperator, isEmployee, setRole } = useAuth();
@@ -535,6 +535,39 @@ function AppContent() {
     }
   };
 
+  const handleBlockSave = async (savedBlock, editDraft) => {
+    await fetchAllData();
+
+    if (optimizationResult?.scheduled_blocks?.length && savedBlock) {
+      const { updatedBlocks, matched } = updateScheduledBlockList(
+        optimizationResult.scheduled_blocks,
+        savedBlock,
+        editDraft
+      );
+
+      if (matched) {
+        const numShifted = updatedBlocks.filter((b) => b.is_shifted).length;
+        const numPinned = updatedBlocks.filter((b) => b.is_pinned).length;
+
+        setOptimizationResult((prev) => ({
+          ...prev,
+          scheduled_blocks: updatedBlocks,
+          solver_statistics: {
+            ...(prev?.solver_statistics || {}),
+            num_shifted: numShifted,
+            num_pinned: numPinned,
+          },
+        }));
+
+        const id = savedBlock.block_id || savedBlock.request_id || savedBlock.asset_id || 'Possession';
+        addToast(
+          `Synced ${id} with active schedule (${editDraft?.is_pinned ? 'Pinned' : 'Updated'}). Run optimization to recompute mathematically.`,
+          'success'
+        );
+      }
+    }
+  };
+
   const getPageTitle = () => {
     const page = route.page;
     if (isOperator) {
@@ -854,7 +887,7 @@ function AppContent() {
           <BlockDetailModal
             block={selectedDetailBlock}
             onClose={() => setSelectedDetailBlock(null)}
-            onSave={fetchAllData}
+            onSave={handleBlockSave}
           />
         ) : (
           <EmployeeBlockDetailModal

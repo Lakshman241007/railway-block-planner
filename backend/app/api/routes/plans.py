@@ -41,7 +41,12 @@ from backend.app.block_planner.schemas import (
     WeeklyPlan,
     WeeklyPlanRequest,
 )
-from backend.app.database.repositories import BlockRepository, OptimizedPlanRepository
+from backend.app.database.repositories import (
+    BlockRepository,
+    MaintenanceRepository,
+    OptimizedPlanRepository,
+)
+from backend.app.database.seed import seed_database
 from backend.app.optimizer.schemas import OptimizationRequest, OptimizationResult
 from backend.app.optimizer.validator import validate_final_plan
 from backend.app.services.scheduling_service import SchedulingService
