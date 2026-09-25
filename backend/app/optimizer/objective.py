@@ -128,6 +128,16 @@ def compute_slot_coefficient(
     disruption_penalty = int(round((1.0 - max(0.0, min(1.0, fit_score))) * 100))
     coeff -= (weights.weight_disruption * disruption_penalty) // 10
 
+    # 5. Optional block utilization reward (Rule 9: integer scaling)
+    if getattr(weights, "weight_block_utilization", 0) > 0:
+        dur = meta.get("duration_minutes", 0)
+        coeff += weights.weight_block_utilization * dur
+
+    # 6. Optional operational efficiency reward (Rule 9: integer scaling)
+    if getattr(weights, "weight_operational_efficiency", 0) > 0:
+        eff_bonus = int(round(max(0.0, min(1.0, fit_score)) * 100))
+        coeff += (weights.weight_operational_efficiency * eff_bonus) // 10
+
     return coeff
 
 

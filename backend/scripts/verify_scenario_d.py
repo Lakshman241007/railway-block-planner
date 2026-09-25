@@ -127,7 +127,7 @@ def main():
     print(f"\n[STEP 2] Processing conflicts via POST /api/conflicts/process?target_date={TARGET_DATE_STR}...")
     status, proc_data = request("POST", f"/api/conflicts/process?target_date={TARGET_DATE_STR}&buffer_minutes=15")
     assert status == 200, f"Failed to process conflicts: {status} - {proc_data}"
-    
+
     total = proc_data.get("total_conflicts", 0)
     auto_resolved = proc_data.get("auto_resolved_count", 0)
     requires_review = proc_data.get("requires_human_review_count", 0)

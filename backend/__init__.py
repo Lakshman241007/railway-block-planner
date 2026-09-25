@@ -1,1 +1,1 @@
-# backend package
+# data_integration package

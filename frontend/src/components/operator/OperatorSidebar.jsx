@@ -1,6 +1,18 @@
 import React from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { OPERATOR_ROUTES, navigateTo } from '../../router';
+import {
+  IconDashboard,
+  IconSchedule,
+  IconBlocks,
+  IconMaintenance,
+  IconTrains,
+  IconForecast,
+  IconOptimization,
+  IconConflicts,
+  IconTrainBrand,
+  IconSwapRole,
+} from '../icons/SidebarIcons';
 
 export default function OperatorSidebar({
   activePage,
@@ -16,14 +28,14 @@ export default function OperatorSidebar({
   const { switchRole } = useAuth();
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: '◉', path: OPERATOR_ROUTES.DASHBOARD },
-    { id: 'schedule', label: 'Schedule', icon: '📅', path: OPERATOR_ROUTES.SCHEDULE },
-    { id: 'blocks', label: 'Block Requests', icon: '🚧', path: OPERATOR_ROUTES.BLOCKS, badge: pendingBlockCount > 0 ? pendingBlockCount : null },
-    { id: 'maintenance', label: 'Maintenance', icon: '🛠', path: OPERATOR_ROUTES.MAINTENANCE },
-    { id: 'trains', label: 'Train Traffic', icon: '🚦', path: OPERATOR_ROUTES.TRAINS },
-    { id: 'forecast', label: 'Goods Forecast', icon: '📈', path: OPERATOR_ROUTES.FORECAST, badge: forecastCount > 0 ? forecastCount : null },
-    { id: 'optimization', label: 'Optimization', icon: '⚡', path: OPERATOR_ROUTES.OPTIMIZATION },
-    { id: 'conflicts', label: 'Conflicts', icon: '⚠', path: OPERATOR_ROUTES.CONFLICTS, badge: conflictCount > 0 ? conflictCount : null, isAlert: true },
+    { id: 'dashboard', label: 'Dashboard', icon: IconDashboard, path: OPERATOR_ROUTES.DASHBOARD },
+    { id: 'schedule', label: 'Schedule', icon: IconSchedule, path: OPERATOR_ROUTES.SCHEDULE },
+    { id: 'blocks', label: 'Block Requests', icon: IconBlocks, path: OPERATOR_ROUTES.BLOCKS, badge: pendingBlockCount > 0 ? pendingBlockCount : null },
+    { id: 'maintenance', label: 'Maintenance', icon: IconMaintenance, path: OPERATOR_ROUTES.MAINTENANCE },
+    { id: 'trains', label: 'Train Traffic', icon: IconTrains, path: OPERATOR_ROUTES.TRAINS },
+    { id: 'forecast', label: 'Goods Forecast', icon: IconForecast, path: OPERATOR_ROUTES.FORECAST, badge: forecastCount > 0 ? forecastCount : null },
+    { id: 'optimization', label: 'Optimization', icon: IconOptimization, path: OPERATOR_ROUTES.OPTIMIZATION },
+    { id: 'conflicts', label: 'Conflicts', icon: IconConflicts, path: OPERATOR_ROUTES.CONFLICTS, badge: conflictCount > 0 ? conflictCount : null, isAlert: true },
   ];
 
   const handleItemClick = (item) => {
@@ -38,7 +50,9 @@ export default function OperatorSidebar({
   return (
     <aside className={`sidebar operator-sidebar ${mobileOpen ? 'mobile-open' : ''} ${collapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-header">
-        <div className="brand-icon" style={{ background: '#0284c7' }}>🚆</div>
+        <div className="brand-icon" style={{ background: '#0284c7' }}>
+          <IconTrainBrand />
+        </div>
         <div className="brand-info">
           <div className="brand-title">
             RAILWAY <span>PLANNER</span>
@@ -58,21 +72,26 @@ export default function OperatorSidebar({
 
       <nav className="sidebar-nav">
         <div className="nav-section-title">Operational Controls</div>
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            id={`operator-nav-${item.id}`}
-            className={`nav-item ${activePage === item.id ? 'active' : ''}`}
-            onClick={() => handleItemClick(item)}
-            title={item.label}
-          >
-            <span className="nav-item-icon">{item.icon}</span>
-            <span>{item.label}</span>
-            {item.badge != null && (
-              <span className={`nav-badge ${item.isAlert ? '' : 'info'}`}>{item.badge}</span>
-            )}
-          </button>
-        ))}
+        {navItems.map((item) => {
+          const ItemIcon = item.icon;
+          return (
+            <button
+              key={item.id}
+              id={`operator-nav-${item.id}`}
+              className={`nav-item ${activePage === item.id ? 'active' : ''}`}
+              onClick={() => handleItemClick(item)}
+              title={item.label}
+            >
+              <span className="nav-item-icon">
+                <ItemIcon />
+              </span>
+              <span>{item.label}</span>
+              {item.badge != null && (
+                <span className={`nav-badge ${item.isAlert ? '' : 'info'}`}>{item.badge}</span>
+              )}
+            </button>
+          );
+        })}
       </nav>
 
       <div className="sidebar-footer">
@@ -85,7 +104,9 @@ export default function OperatorSidebar({
           }}
           title="Switch view to Employee Operations Monitor"
         >
-          <span className="switch-icon">🔄</span>
+          <span className="switch-icon">
+            <IconSwapRole />
+          </span>
           <div style={{ textAlign: 'left' }}>
             <div style={{ fontSize: '0.74rem', fontWeight: 600, color: '#e2e8f0' }}>Switch Role</div>
             <div style={{ fontSize: '0.66rem', color: '#94a3b8' }}>To Employee Monitor</div>

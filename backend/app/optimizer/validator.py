@@ -1,5 +1,5 @@
 """
-Final Plan Validator for Railway Block Planner (Phase 5).
+Final Plan Validator for Railway Block Planner (Phase 3 & Phase 5).
 
 Provides independent post-optimization plan validation reusing the existing
 ConflictDetector. This validator is called after every CP-SAT optimization
@@ -8,25 +8,33 @@ to certify the plan before it is persisted and presented to the user.
 VALIDATION CHECKS:
   1. No duplicate block_ids in scheduled output
   2. All scheduled blocks have valid service_date, start_time, end_time
-  3. All durations are > 0
-  4. scheduled + unscheduled == total_requests (count integrity)
-  5. No unknown block_ids (all request_ids trace to known source requests)
-  6. No overlapping possessions at the same location (via ConflictDetector)
-  7. No train movement collisions in the final plan
-  8. Overnight blocks (end < start) have correct duration semantics
+  3. All durations are > 0 and end_time > start_time (or overnight wrap)
+  4. Scheduled duration matches requested duration (no shortened/extended allocations)
+  5. Allocation fits within candidate availability window bounds if available
+  6. Compatibility between maintenance job and block/window (location/corridor)
+  7. scheduled + unscheduled == total_requests (count integrity)
+  8. No unknown request/block ids (all request_ids trace to known source requests)
+  9. No overlapping possessions at the same location (via ConflictDetector)
+ 10. No train movement collisions in the final plan
+ 11. No equipment/resource capacity contention in the final plan
+ 12. Overnight blocks (end < start) have correct duration semantics
 
 RETURNS:
   FinalPlanValidationResult dict:
     {
       "is_valid": bool,
       "plan_id": str,
+      "solver_status": str,
       "conflicts": int,
       "headway_violations": int,
       "equipment_violations": int,
       "duration_violations": int,
-      "unknown_blocks": int,
       "duplicate_ids": int,
+      "unknown_blocks": int,
       "count_integrity": bool,
+      "num_scheduled": int,
+      "num_unscheduled": int,
+      "total_requests": int,
       "violations": [str, ...],
     }
 """
@@ -34,17 +42,25 @@ RETURNS:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from backend.app.forecast.schemas import GoodsForecastItem
 from backend.app.optimizer.schemas import OptimizationResult, OptimizationStatus
 from backend.app.scheduler.conflict_detector import ConflictDetector
-from backend.app.schemas.unified_data import MovementRecord, TimetableRecord, TrainRecord
+from backend.app.scheduler.scheduler import _locations_match
+from backend.app.schemas.unified_data import (
+    BlockRecord,
+    MaintenanceRecord,
+    MovementRecord,
+    TimetableRecord,
+    TrainRecord,
+)
 
 logger = logging.getLogger(__name__)
 
-_TIME_RE_SIMPLE = __import__("re").compile(r"^\d{2}:\d{2}$")
+_TIME_RE_SIMPLE = re.compile(r"^\d{2}:\d{2}$")
 
 
 def _parse_hhmm(val: str) -> int:
@@ -63,6 +79,8 @@ def validate_final_plan(
     goods_forecasts: Optional[List[GoodsForecastItem]] = None,
     movements: Optional[List[MovementRecord]] = None,
     buffer_minutes: int = 15,
+    source_requests: Optional[List[Any]] = None,
+    available_windows: Optional[List[Any]] = None,
 ) -> Dict[str, Any]:
     """
     Independently validate an OptimizationResult before acceptance.
@@ -79,6 +97,8 @@ def validate_final_plan(
     goods_forecasts : list of GoodsForecastItem, optional
     movements : list of MovementRecord, optional
     buffer_minutes : int, default 15
+    source_requests : list of source request records/items, optional
+    available_windows : list of corridor availability windows, optional
 
     Returns
     -------
@@ -89,6 +109,33 @@ def validate_final_plan(
     scheduled = plan.scheduled_blocks or []
     unscheduled = plan.unscheduled_blocks or []
     stats = plan.solver_statistics
+
+    # -----------------------------------------------------------------------
+    # Build lookup tables if source_requests or available_windows provided
+    # -----------------------------------------------------------------------
+    source_req_map: Dict[str, Any] = {}
+    if source_requests:
+        for r in source_requests:
+            rid = (
+                getattr(r, "request_id", None)
+                or getattr(r, "work_id", None)
+                or getattr(r, "asset_id", None)
+                or getattr(r, "block_id", None)
+                or (r.get("request_id") or r.get("work_id") or r.get("asset_id") or r.get("block_id") if isinstance(r, dict) else None)
+            )
+            if rid:
+                source_req_map[str(rid)] = r
+
+    windows_map: Dict[str, Any] = {}
+    if available_windows:
+        for w in available_windows:
+            wid = (
+                getattr(w, "window_id", None)
+                or getattr(w, "block_id", None)
+                or (w.get("window_id") or w.get("block_id") if isinstance(w, dict) else None)
+            )
+            if wid:
+                windows_map[str(wid)] = w
 
     # -----------------------------------------------------------------------
     # 1. Duplicate block_id check
@@ -103,41 +150,112 @@ def validate_final_plan(
         seen_ids.add(bid)
 
     # -----------------------------------------------------------------------
-    # 2. Structural validity of each scheduled block
+    # 2. Structural validity & duration integrity of each scheduled block
     # -----------------------------------------------------------------------
     duration_violations = 0
+    unknown_blocks = 0
+
     for blk in scheduled:
-        # Check times
+        # Check times format
         if not _TIME_RE_SIMPLE.match(blk.start_time or ""):
             violations.append(f"INVALID_START_TIME: block '{blk.block_id}' start='{blk.start_time}'")
         if not _TIME_RE_SIMPLE.match(blk.end_time or ""):
             violations.append(f"INVALID_END_TIME: block '{blk.block_id}' end='{blk.end_time}'")
-        # Check duration
+        # Check duration > 0
         if blk.duration_minutes <= 0:
             duration_violations += 1
             violations.append(
-                f"ZERO_DURATION: block '{blk.block_id}' has duration_minutes={blk.duration_minutes}"
+                f"ZERO_OR_NEGATIVE_DURATION: block '{blk.block_id}' has duration_minutes={blk.duration_minutes}"
             )
         # Check service_date present
         if not blk.service_date:
             violations.append(f"MISSING_DATE: block '{blk.block_id}' has no service_date.")
 
-        # Check overnight semantics: if end < start → duration should equal (1440-s)+e
+        # Check start vs end times consistency
         s = _parse_hhmm(blk.start_time)
         e = _parse_hhmm(blk.end_time)
         if s >= 0 and e >= 0 and blk.duration_minutes > 0:
-            if e < s:
-                # Overnight
-                expected_dur = (1440 - s) + e
-            else:
-                expected_dur = e - s
-            if abs(expected_dur - blk.duration_minutes) > 2:  # 2-min tolerance for rounding
+            if e == s:
                 duration_violations += 1
                 violations.append(
-                    f"DURATION_MISMATCH: block '{blk.block_id}' claims {blk.duration_minutes}min "
-                    f"but start={blk.start_time}/end={blk.end_time} implies {expected_dur}min "
-                    f"({'overnight' if e < s else 'same-day'})."
+                    f"ZERO_INTERVAL: block '{blk.block_id}' has identical start and end time '{blk.start_time}'"
                 )
+            else:
+                if e < s:
+                    # Overnight possession: duration should equal (1440 - s) + e
+                    expected_dur = (1440 - s) + e
+                else:
+                    expected_dur = e - s
+
+                if abs(expected_dur - blk.duration_minutes) > 2:  # 2-min tolerance for rounding
+                    duration_violations += 1
+                    violations.append(
+                        f"DURATION_MISMATCH: block '{blk.block_id}' claims {blk.duration_minutes}min "
+                        f"but start={blk.start_time}/end={blk.end_time} implies {expected_dur}min "
+                        f"({'overnight' if e < s else 'same-day'})."
+                    )
+
+        # -------------------------------------------------------------------
+        # Source request tracing & requested duration match
+        # -------------------------------------------------------------------
+        rid = blk.request_id or blk.asset_id or blk.block_request_id
+        if source_req_map:
+            matched_src = (
+                source_req_map.get(str(blk.request_id))
+                or (source_req_map.get(str(blk.asset_id)) if blk.asset_id else None)
+                or (source_req_map.get(str(blk.block_request_id)) if blk.block_request_id else None)
+            )
+            if not matched_src:
+                unknown_blocks += 1
+                violations.append(
+                    f"UNKNOWN_REQUEST: block '{blk.block_id}' has request_id '{blk.request_id}' "
+                    f"which does not exist in known source requests."
+                )
+            else:
+                # Check requested duration matches scheduled duration (no silent shortening)
+                req_dur = (
+                    getattr(matched_src, "duration_minutes", None)
+                    or getattr(matched_src, "required_duration_minutes", None)
+                    or getattr(matched_src, "estimated_duration_minutes", None)
+                    or (matched_src.get("duration_minutes") or matched_src.get("required_duration_minutes") if isinstance(matched_src, dict) else None)
+                )
+                if req_dur is not None and int(req_dur) != blk.duration_minutes:
+                    duration_violations += 1
+                    violations.append(
+                        f"DURATION_ALTERED: block '{blk.block_id}' scheduled for {blk.duration_minutes}min "
+                        f"but source request '{blk.request_id}' requested {req_dur}min."
+                    )
+
+                # Check work/block compatibility (location)
+                req_loc = (
+                    getattr(matched_src, "location", None)
+                    or (matched_src.get("location") if isinstance(matched_src, dict) else None)
+                )
+                if req_loc and blk.location and not _locations_match(req_loc, blk.location):
+                    violations.append(
+                        f"INCOMPATIBLE_LOCATION: block '{blk.block_id}' assigned to location '{blk.location}' "
+                        f"incompatible with request location '{req_loc}'."
+                    )
+
+        # -------------------------------------------------------------------
+        # Availability window containment check
+        # -------------------------------------------------------------------
+        win_id = getattr(blk, "window_id", None) or getattr(blk, "assigned_slot_id", None)
+        if windows_map and win_id and str(win_id) in windows_map:
+            win = windows_map[str(win_id)]
+            w_start_str = getattr(win, "start_time", None) or (win.get("start_time") if isinstance(win, dict) else None)
+            w_end_str = getattr(win, "end_time", None) or (win.get("end_time") if isinstance(win, dict) else None)
+            if w_start_str and w_end_str and s >= 0 and e >= 0:
+                ws = _parse_hhmm(w_start_str)
+                we = _parse_hhmm(w_end_str)
+                if we < ws:
+                    we += 1440
+                eff_e = e if e >= s else e + 1440
+                if s < ws or eff_e > we:
+                    violations.append(
+                        f"WINDOW_BOUNDS_EXCEEDED: block '{blk.block_id}' [{blk.start_time}-{blk.end_time}] "
+                        f"exceeds availability window '{win_id}' [{w_start_str}-{w_end_str}]."
+                    )
 
     # -----------------------------------------------------------------------
     # 3. Count integrity: scheduled + unscheduled == total_requests
@@ -156,7 +274,6 @@ def validate_final_plan(
     conflicts_total = 0
     headway_violations = 0
     equipment_violations = 0
-    unknown_blocks = 0
 
     if plan.status in (OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE) and scheduled:
         try:
@@ -179,7 +296,7 @@ def validate_final_plan(
                     target_date=h_date,
                     proposed_schedule=scheduled,
                 )
-                from backend.app.scheduler.schemas import ConflictType, ConflictSeverity
+                from backend.app.scheduler.schemas import ConflictSeverity, ConflictType
                 for c in c_rep.conflicts:
                     # LOW-severity buffer violations are advisory; exclude from hard count
                     if c.conflict_type == ConflictType.SAFETY_BUFFER_VIOLATION and c.severity == ConflictSeverity.LOW:
@@ -208,6 +325,7 @@ def validate_final_plan(
         and conflicts_total == 0
         and duplicate_count == 0
         and duration_violations == 0
+        and unknown_blocks == 0
     )
 
     result = {

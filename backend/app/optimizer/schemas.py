@@ -107,6 +107,16 @@ class ObjectiveWeights(BaseModel):
         ge=0,
         description="Penalty multiplier for equipment contention pressure",
     )
+    weight_block_utilization: int = Field(
+        default=0,
+        ge=0,
+        description="Optional bonus multiplier per minute of block duration utilized",
+    )
+    weight_operational_efficiency: int = Field(
+        default=0,
+        ge=0,
+        description="Optional bonus multiplier for high slot fit / minimal operational disruption",
+    )
 
     model_config = {"str_strip_whitespace": True}
 
@@ -229,6 +239,7 @@ class OptimizedBlock(BaseModel):
     required_resources: int = Field(default=1, ge=1, description="Resource/manpower units allocated")
     status: str = Field(default="Scheduled", description="Scheduling status")
     assigned_slot_id: str = Field(..., description="Assigned candidate slot identifier")
+    window_id: Optional[str] = Field(default=None, description="Corridor availability window ID if matched from daily windows")
     fit_score: float = Field(default=1.0, ge=0.0, le=1.0, description="Fit score of assigned slot")
     is_preferred_match: bool = Field(default=True, description="True if scheduled at preferred time")
     deviation_minutes: int = Field(default=0, ge=0, description="Minutes deviated from requested start")
@@ -270,6 +281,8 @@ class UnscheduledBlock(BaseModel):
     )
     priority_value: Optional[float] = Field(default=None, description="Authoritative AI priority score")
     priority_enrichment: Optional[PriorityEnrichment] = Field(default=None, description="AI prioritization explainability metrics")
+    status: str = Field(default="Unscheduled", description="Scheduling status (always Unscheduled)")
+    diagnostic_message: Optional[str] = Field(default=None, description="Detailed diagnostic or error message")
 
     model_config = {"str_strip_whitespace": True, "extra": "allow"}
 
@@ -316,5 +329,6 @@ class OptimizationResult(BaseModel):
     )
     phase: str = Field(default="Phase 5 - CP-SAT Optimization", description="Pipeline phase")
     notes: Optional[str] = Field(default=None, description="Prototype notes and disclaimer summary")
+    validation: Optional[Dict[str, Any]] = Field(default=None, description="Independent Phase 3 validation report")
 
     model_config = {"str_strip_whitespace": True}

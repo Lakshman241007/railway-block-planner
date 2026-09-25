@@ -58,7 +58,13 @@ export default function ScheduledPossessionsTable({ blocks = [], onSelectBlock }
                   <td className="table-cell-mono" style={{ color: '#34d399' }}>{b.start_time}</td>
                   <td className="table-cell-mono" style={{ color: '#34d399' }}>{b.end_time}</td>
                   <td className="table-cell-mono">{b.duration_minutes}m</td>
-                  <td><PriorityBadge priority={b.priority} /></td>
+                  <td>
+                    <PriorityBadge
+                      priority={b.priority}
+                      value={b.priority_value != null ? b.priority_value : b.priority_enrichment?.priority_value}
+                      showValue={(b.priority_value != null || b.priority_enrichment?.priority_value != null)}
+                    />
+                  </td>
                   <td>
                     {b.is_pinned && <span className="badge badge-green">📌 Pinned</span>}
                     {b.is_shifted && (

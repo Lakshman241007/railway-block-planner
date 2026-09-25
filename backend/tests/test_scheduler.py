@@ -695,7 +695,6 @@ def test_monthly_end_date_always_matches_calendar_last_day():
         )
         assert dates[0] == start
 
-
 def test_conflict_priority_precedence_high_over_medium():
     """Verify higher priority block takes precedence over lower priority block."""
     b_high = BlockRecord(
@@ -809,4 +808,3 @@ def test_conflict_priority_tie_routine():
     assert bb_conflict.precedence_entity_id == "TRK-ROUTINE-2"
     assert "Priority Tie (Medium)" in bb_conflict.suggested_action
     assert bb_conflict.resolution_strategy == "Sequential Staggering"
-

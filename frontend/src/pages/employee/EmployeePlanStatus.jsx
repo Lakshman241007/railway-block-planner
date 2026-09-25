@@ -3,6 +3,8 @@ import PageContainer from '../../components/PageContainer';
 import StatCard from '../../components/StatCard';
 import PriorityBadge from '../../components/PriorityBadge';
 import EmptyState from '../../components/EmptyState';
+import OptimizationDecisionPipeline from '../../components/OptimizationDecisionPipeline';
+import PlanApprovalSection from '../../components/PlanApprovalSection';
 
 export default function EmployeePlanStatus({
   optimizationResult,
@@ -31,6 +33,24 @@ export default function EmployeePlanStatus({
           {scheduledBlocks.length} ASSIGNED
         </div>
       </div>
+
+      {/* Phase 6 — Optimization Decision Pipeline */}
+      <div style={{ marginBottom: 20 }}>
+        <OptimizationDecisionPipeline
+          optimizationResult={optimizationResult}
+          targetDate={targetDate}
+          onSelectBlock={onSelectBlock}
+        />
+      </div>
+
+      {/* Plan Human Verification & Network Publication State */}
+      {optimizationResult && (
+        <PlanApprovalSection
+          optimizationResult={optimizationResult}
+          isOperator={false}
+          targetDate={targetDate}
+        />
+      )}
 
       {/* Solver Metrics Summary */}
       {optimizationResult ? (

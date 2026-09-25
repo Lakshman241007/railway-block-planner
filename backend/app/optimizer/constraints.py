@@ -93,14 +93,30 @@ def add_track_overlap_constraints(
             if var2 is None:
                 continue
 
-            # Check track section overlap
-            if _locations_match(loc1, loc2):
+            # Check track section overlap, shared block identifier, or shared window identifier
+            b1 = meta1.get("block_id")
+            b2 = meta2.get("block_id")
+            same_block = bool(b1 and b2 and b1 == b2)
+            w1 = meta1.get("window_id")
+            w2 = meta2.get("window_id")
+            same_window = bool(w1 and w2 and w1 == w2)
+
+            if _locations_match(loc1, loc2) or same_block or same_window:
                 # Check temporal interval overlap in absolute minutes
                 if max(abs_start1, abs_start2) < min(abs_end1, abs_end2):
                     model.Add(var1 + var2 <= 1)
                     constraint_count += 1
 
     return constraint_count
+
+
+def _canonical_equipment_name(equipment_name: str, capacities: Dict[str, int]) -> str:
+    """Resolve equipment string to canonical key in configured capacities map."""
+    eq_lower = equipment_name.strip().lower()
+    for cap_name in capacities.keys():
+        if cap_name.lower() in eq_lower or eq_lower in cap_name.lower():
+            return cap_name
+    return equipment_name.strip()
 
 
 def _group_slots_by_equipment(
@@ -114,7 +130,7 @@ def _group_slots_by_equipment(
     for s_id, meta in slot_metadata.items():
         eq = meta.get("equipment")
         if eq and str(eq).strip().lower() not in ("none", "", "nil"):
-            norm_eq = str(eq).strip()
+            norm_eq = _canonical_equipment_name(str(eq), resource_capacities)
             cap = _get_equipment_capacity(norm_eq, resource_capacities)
             if cap is not None:
                 day_diff = (meta["service_date"] - base_date).days

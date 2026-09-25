@@ -7,6 +7,7 @@ active track movements, and goods train forecasts.
 """
 
 from __future__ import annotations
+
 import calendar
 from datetime import date, datetime, time, timedelta, timezone
 import logging
@@ -120,21 +121,16 @@ def _get_horizon_days(
     monthly -> selected date through the last day of that month
     """
     schedule_type = schedule_type.lower().strip()
-
     if schedule_type == "daily":
         return 1
-
     if schedule_type == "weekly":
         return 7
-
     if schedule_type == "monthly":
         last_day = calendar.monthrange(
             start_date.year,
             start_date.month,
         )[1]
-
         return last_day - start_date.day + 1
-
     raise ValueError(
         "schedule_type must be 'daily', 'weekly', or 'monthly'"
     )
@@ -453,7 +449,7 @@ class MaintenanceScheduler:
         target_date: Optional[date] = None,
         priority_filter: Optional[str] = None,
         location_filter: Optional[str] = None,
-        schedule_type: str = "daily"
+        schedule_type: str = "daily",
     ) -> ScheduleResult:
         """
         Generate full schedule assignments for all active maintenance and block requests.
@@ -469,7 +465,7 @@ class MaintenanceScheduler:
         requests_to_schedule = []
 
         for m in self.maintenance_records:
-            if (m.requested_date in schedule_date_set and m.maintenance_required):
+            if m.requested_date in schedule_date_set and m.maintenance_required:
                 if priority_filter and m.priority.value.lower() != priority_filter.lower():
                     continue
                 if location_filter and location_filter.lower() not in m.location.lower():
@@ -488,11 +484,11 @@ class MaintenanceScheduler:
                     "priority": m.priority,
                     "duration": m.duration_minutes,
                     "preferred_start": pref_str,
-                    "requested_date": m.requested_date
+                    "requested_date": m.requested_date,
                 })
 
         for b in self.block_records:
-            if (b.requested_date in schedule_date_set and b.status != BlockStatus.CANCELLED):
+            if b.requested_date in schedule_date_set and b.status != BlockStatus.CANCELLED:
                 if priority_filter and b.priority.value.lower() != priority_filter.lower():
                     continue
                 if location_filter and location_filter.lower() not in b.location.lower():
@@ -507,9 +503,8 @@ class MaintenanceScheduler:
                     "priority": b.priority,
                     "duration": dur,
                     "preferred_start": b.requested_start,
-                    "requested_date": b.requested_date
+                    "requested_date": b.requested_date,
                 })
-
 
         # Sort requests by priority (Critical first), duration descending, and request ID for strict determinism
         requests_to_schedule.sort(
@@ -525,22 +520,20 @@ class MaintenanceScheduler:
         unfeasible_items: List[MaintenanceScheduleItem] = []
         sched_counter = 1
 
-        # Track maintenance assignments made during this scheduling run.
-        # This prevents multiple new requests from being assigned to the exact same time window.
-            
+        # Track maintenance assignments made during this scheduling run: (date, location, start, end, id)
         assigned_intervals: List[Tuple[date, str, int, int, str]] = []
-            
+
         for req in requests_to_schedule:
             candidate_slots: List[FeasibleSlot] = []
 
-            # Prefer the originally requested date first.
+            # Prefer the originally requested date first
             candidate_dates = sorted(
                 schedule_dates,
                 key=lambda d: (
                     0 if d == req["requested_date"] else 1,
                     abs((d - req["requested_date"]).days),
-                    ),
-                )
+                ),
+            )
 
             for candidate_date in candidate_dates:
                 slots = self.find_feasible_slots(
@@ -548,74 +541,43 @@ class MaintenanceScheduler:
                     duration_minutes=req["duration"],
                     preferred_start=req["preferred_start"],
                     target_date=candidate_date,
-                    max_slots=5
-                    )
-
+                    max_slots=5,
+                )
                 for slot in slots:
-                    slot_start = _parse_time_to_minutes(slot.start_time)
+                    slot_start = _parse_time_to_minutes(slot.start_time) or 0
                     slot_end = slot_start + slot.duration_minutes
 
-                    # Check against tasks already assigned by this scheduler run.
+                    # Check against tasks already assigned by this scheduler run
                     has_internal_conflict = False
-
-                    for (assigned_date, assigned_location, assigned_start, assigned_end,_,) in assigned_intervals:
-
+                    for (assigned_date, assigned_location, assigned_start, assigned_end, _) in assigned_intervals:
                         if assigned_date != candidate_date:
                             continue
-
-                        if not _locations_match(
-                            assigned_location,
-                            req["location"],
-                        ):
+                        if not _locations_match(assigned_location, req["location"]):
                             continue
-
-                        # Interval overlap check
-                        if (
-                            slot_start < assigned_end
-                            and slot_end > assigned_start
-                        ):
+                        if slot_start < assigned_end and slot_end > assigned_start:
                             has_internal_conflict = True
                             break
 
                     if not has_internal_conflict:
                         candidate_slots.append(slot)
 
-            # Select the best candidate.
             if candidate_slots:
                 primary = max(
                     candidate_slots,
                     key=lambda slot: (
                         slot.fit_score,
                         -abs(
-                            (
-                                _parse_time_to_minutes(slot.start_time)
-                                or 0
-                            )
-                            - (
-                                _parse_time_to_minutes(
-                                    req["preferred_start"]
-                                )
-                                or 600
-                            )
+                            (_parse_time_to_minutes(slot.start_time) or 0)
+                            - (_parse_time_to_minutes(req["preferred_start"]) or 600)
                         ),
                     ),
                 )
-
-                alts = [
-                    slot
-                    for slot in candidate_slots
-                    if slot != primary
-                ][:5]
-
+                alts = [slot for slot in candidate_slots if slot != primary][:5]
                 status = (
                     "Scheduled"
-                    if (
-                        primary.service_date == req["requested_date"]
-                        and primary.is_preferred_match
-                    )
+                    if (primary.service_date == req["requested_date"] and primary.is_preferred_match)
                     else "AlternativeSuggested"
                 )
-
                 item = MaintenanceScheduleItem(
                     schedule_id=f"SCHED-{sched_counter:04d}",
                     request_id=req["id"],
@@ -628,23 +590,12 @@ class MaintenanceScheduler:
                     assigned_slot=primary,
                     alternative_slots=alts,
                     status=status,
-                    notes=(
-                        "Feasible window identified within the "
-                        f"{schedule_type} scheduling horizon."
-                    ),
+                    notes=f"Feasible window identified within the {schedule_type} scheduling horizon.",
                 )
-
                 scheduled_items.append(item)
 
-                # Reserve the selected slot for later requests.
-                assigned_start = _parse_time_to_minutes(
-                    primary.start_time
-                ) or 0
-
-                assigned_end = (
-                    assigned_start
-                    + primary.duration_minutes)
-
+                assigned_start = _parse_time_to_minutes(primary.start_time) or 0
+                assigned_end = assigned_start + primary.duration_minutes
                 assigned_intervals.append(
                     (
                         primary.service_date,
@@ -654,8 +605,6 @@ class MaintenanceScheduler:
                         req["id"],
                     )
                 )
-
-                
             else:
                 item = MaintenanceScheduleItem(
                     schedule_id=f"SCHED-{sched_counter:04d}",
@@ -669,17 +618,11 @@ class MaintenanceScheduler:
                     assigned_slot=None,
                     alternative_slots=[],
                     status="Unfeasible",
-                    notes=(
-                        "No conflict-free time window of sufficient "
-                        f"duration available within the {schedule_type} "
-                        "scheduling horizon."
-                    ),
+                    notes=f"No conflict-free time window of sufficient duration available within the {schedule_type} scheduling horizon.",
                 )
-
                 unfeasible_items.append(item)
 
             sched_counter += 1
-
 
         return ScheduleResult(
             generated_at=datetime.now(timezone.utc).isoformat(),
@@ -1159,39 +1102,49 @@ class MaintenanceScheduler:
 
         # Build categorized unscheduled works preserving matching vs solver diagnostics
         combined_unscheduled: List[Dict[str, Any]] = []
-
-        # 1. Pre-solver matching rejections (no compatible window exists)
-        for r_work in match_report.rejected_works:
-            combined_unscheduled.append({
-                "request_id": r_work.get("work_id"),
-                "work_id": r_work.get("work_id"),
-                "location": r_work.get("location"),
-                "corridor": r_work.get("corridor"),
-                "priority": r_work.get("priority"),
-                "duration_minutes": r_work.get("duration_minutes"),
-                "source": "PreSolverMatching",
-                "reason": f"No compatible block exists: {', '.join(r_work.get('reasons', []))}",
-                "rejection_reasons": r_work.get("reasons", []),
-            })
+        seen_unscheduled_ids = set()
 
         candidate_map = {w.work_id: w for w in problem.candidate_works}
 
+        # 1. Pre-solver matching rejections (no compatible window exists)
+        for r_work in match_report.rejected_works:
+            r_id = r_work.get("work_id")
+            if r_id and r_id not in seen_unscheduled_ids:
+                seen_unscheduled_ids.add(r_id)
+                c_work = candidate_map.get(r_id)
+                pv = getattr(c_work, "priority_value", None) if c_work else r_work.get("priority_value")
+                combined_unscheduled.append({
+                    "request_id": r_id,
+                    "work_id": r_id,
+                    "location": r_work.get("location"),
+                    "corridor": r_work.get("corridor"),
+                    "priority": r_work.get("priority"),
+                    "priority_value": pv,
+                    "duration_minutes": r_work.get("duration_minutes"),
+                    "source": "PreSolverMatching",
+                    "reason": f"No compatible block exists: {', '.join(r_work.get('reasons', []))}",
+                    "rejection_reasons": r_work.get("reasons", []),
+                })
+
         # 2. Solver unscheduled blocks (had candidate slots, but CP-SAT did not select)
         for un_b in opt_res.unscheduled_blocks:
-            c_work = candidate_map.get(un_b.request_id)
-            pv = getattr(un_b, "priority_value", None) or (getattr(c_work, "priority_value", None) if c_work else None)
-            combined_unscheduled.append({
-                "request_id": un_b.request_id,
-                "work_id": un_b.request_id,
-                "asset_id": un_b.asset_id,
-                "location": un_b.location,
-                "priority": un_b.priority.value if hasattr(un_b.priority, "value") else str(un_b.priority),
-                "priority_value": pv,
-                "duration_minutes": un_b.duration_minutes,
-                "source": "CP_SAT_Solver",
-                "reason": un_b.reason,
-                "resource_contention": un_b.resource_contention,
-            })
+            u_id = un_b.request_id
+            if u_id and u_id not in seen_unscheduled_ids:
+                seen_unscheduled_ids.add(u_id)
+                c_work = candidate_map.get(u_id)
+                pv = getattr(un_b, "priority_value", None) or (getattr(c_work, "priority_value", None) if c_work else None)
+                combined_unscheduled.append({
+                    "request_id": u_id,
+                    "work_id": u_id,
+                    "asset_id": un_b.asset_id,
+                    "location": un_b.location,
+                    "priority": un_b.priority.value if hasattr(un_b.priority, "value") else str(un_b.priority),
+                    "priority_value": pv,
+                    "duration_minutes": un_b.duration_minutes,
+                    "source": "CP_SAT_Solver",
+                    "reason": un_b.reason,
+                    "resource_contention": un_b.resource_contention,
+                })
 
         # Total scheduled and unscheduled counts
         num_scheduled = len(opt_res.scheduled_blocks) if opt_res.status in (OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE) else 0

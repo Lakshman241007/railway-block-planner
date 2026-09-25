@@ -6,6 +6,7 @@ import ConflictCard from '../components/ConflictCard';
 import ForecastCard from '../components/ForecastCard';
 import LoadingState from '../components/LoadingState';
 import ErrorState from '../components/ErrorState';
+import OptimizationDecisionPipeline from '../components/OptimizationDecisionPipeline';
 import { getCanonicalPossessions } from '../types';
 
 export default function Dashboard({
@@ -133,6 +134,19 @@ export default function Dashboard({
           accent="cyan"
           badge={optimizationResult?.status || 'IDLE'}
           badgeType={optimizationResult?.status === 'OPTIMAL' ? 'success' : 'info'}
+        />
+      </div>
+
+      {/* Phase 6 — Optimization Decision Pipeline */}
+      <div style={{ marginBottom: 20 }}>
+        <OptimizationDecisionPipeline
+          optimizationResult={optimizationResult}
+          isOptimizing={isOptimizing}
+          targetDate={targetDate}
+          blocks={blocks}
+          maintenance={maintenance}
+          error={error}
+          onSelectBlock={onSelectBlock}
         />
       </div>
 

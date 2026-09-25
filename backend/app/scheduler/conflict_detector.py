@@ -671,7 +671,7 @@ class ConflictDetector:
     def detect_conflicts(
         self,
         target_date: Optional[date] = None,
-        proposed_schedule: Optional[ScheduleResult] = None,
+        proposed_schedule: Optional[Union[ScheduleResult, List[Any], Dict[str, Any], Any]] = None,
     ) -> ConflictReport:
         """Scan all active entities for operational conflicts on the target date."""
         c_date = target_date or date.today()

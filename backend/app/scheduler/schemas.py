@@ -132,8 +132,6 @@ class ConflictReport(BaseModel):
     model_config = {"str_strip_whitespace": True}
 
 
-# Canonical schedule-type contract shared between API and scheduler engine.
-# Literal enforces that FastAPI/Pydantic rejects any other string with HTTP 422.
 ScheduleType = Literal["daily", "weekly", "monthly"]
 
 
@@ -332,3 +330,4 @@ def __getattr__(name: str) -> Any:
         import backend.app.block_planner.schemas as bps
         return getattr(bps, name)
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+

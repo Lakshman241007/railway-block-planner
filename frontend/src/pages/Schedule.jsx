@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import PageContainer from '../components/PageContainer';
 import Timeline from '../components/Timeline';
 import PriorityBadge from '../components/PriorityBadge';
+import StatusBadge from '../components/StatusBadge';
 import LoadingState from '../components/LoadingState';
 import ErrorState from '../components/ErrorState';
 import EmptyState from '../components/EmptyState';
@@ -27,269 +28,6 @@ const SCHEDULE_TYPE_META = {
   },
 };
 
-/**
- * Header toolbar with segmented tab toggle between Possession and Timetable views.
- */
-function SchedulePanelHeader({ displayBlocks, horizonTotal, targetDate, timetable, activeTab, setActiveTab }) {
-  return (
-    <div className="panel-header">
-      <div>
-        <div className="panel-title">
-          <span>📅 Master Operational & Possession Schedule</span>
-          <span className="badge badge-cyan">{displayBlocks.length} POSSESSIONS ({targetDate})</span>
-          {horizonTotal > displayBlocks.length && (
-            <span className="badge badge-outline" title={`Full optimization horizon: ${horizonTotal} blocks across all dates`}>
-              {horizonTotal} TOTAL HORIZON
-            </span>
-          )}
-          <span className="badge badge-outline">{timetable.length} TIMETABLE STOPS</span>
-        </div>
-        <div className="panel-subtitle">
-          Gantt timeline mapping maintenance possessions and scheduled train stops for {targetDate}
-        </div>
-      </div>
-
-      <div className="segmented-control">
-        <button
-          className={`segmented-tab ${activeTab === 'possession' ? 'active' : ''}`}
-          onClick={() => setActiveTab('possession')}
-        >
-          🚧 Possession Schedule ({displayBlocks.length})
-        </button>
-        <button
-          className={`segmented-tab ${activeTab === 'timetable' ? 'active' : ''}`}
-          onClick={() => setActiveTab('timetable')}
-        >
-          🚆 Train Timetable ({timetable.length})
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Filter toolbar for selecting priority levels.
- */
-function ScheduleFilterBar({ priorityFilter, setPriorityFilter, displayBlocksCount, horizonTotal, targetDate }) {
-  return (
-    <div className="filter-toolbar">
-      <div className="filter-group">
-        <select
-          className="select-control"
-          value={priorityFilter}
-          onChange={(e) => setPriorityFilter(e.target.value)}
-        >
-          <option value="ALL">All Priorities</option>
-          <option value="Critical">Critical Priority</option>
-          <option value="High">High Priority</option>
-          <option value="Medium">Medium Priority</option>
-          <option value="Low">Low Priority</option>
-        </select>
-      </div>
-
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <span className="badge badge-outline">Showing: {displayBlocksCount} for {targetDate}</span>
-        {horizonTotal > displayBlocksCount && (
-          <span className="badge badge-outline" style={{ color: '#94a3b8' }}>
-            Horizon total: {horizonTotal}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Single table row rendering a possession slot with manual shift indicators.
- */
-function ScheduleTableRow({ b, idx, targetDate, onSelectBlock }) {
-  const bId = b.block_id || b.request_id || `BLK-${idx + 1}`;
-  const isOvernight = (b.start_time && b.end_time && b.end_time < b.start_time);
-
-  return (
-    <tr
-      key={(b.block_id || b.request_id || idx) + '-' + idx}
-      className="clickable"
-      onClick={() => onSelectBlock && onSelectBlock(b)}
-    >
-      <td className="table-cell-mono" style={{ color: '#38bdf8', fontWeight: 700 }}>
-        {bId} {isOvernight ? '🌙' : ''}
-        {b.is_manual_edit ? (
-          <span className="badge badge-amber" style={{ marginLeft: 6, fontSize: '0.65rem' }}>✏️ Edited</span>
-        ) : b.is_shifted ? (
-          <span className="badge badge-amber" style={{ marginLeft: 6, fontSize: '0.65rem' }}>↔️ Shifted</span>
-        ) : null}
-        {b.is_pinned ? (
-          <span className="badge badge-purple" style={{ marginLeft: 4, fontSize: '0.65rem' }}>📌 Pinned</span>
-        ) : null}
-      </td>
-      <td className="table-cell-highlight">{b.location}</td>
-      <td className="table-cell-mono">{b.service_date || b.requested_date || targetDate}</td>
-      <td className="table-cell-mono" style={{ color: '#34d399' }}>{b.start_time || b.requested_start}</td>
-      <td className="table-cell-mono" style={{ color: '#34d399' }}>{b.end_time || b.requested_end}</td>
-      <td className="table-cell-mono">{b.duration_minutes || b.required_duration}m</td>
-      <td><PriorityBadge priority={b.priority} /></td>
-      <td>{b.equipment || 'Standard Gang'}</td>
-      <td>
-        <span className="badge badge-cyan">
-          {b.fit_score != null ? `${(b.fit_score * 100).toFixed(0)}%` : '100%'}
-        </span>
-      </td>
-    </tr>
-  );
-}
-
-/**
- * Detailed breakdown table of scheduled possession slots.
- */
-function ScheduleTable({ displayBlocks, targetDate, onSelectBlock, hasScheduleResult = false, scheduleType = ScheduleType.DAILY }) {
-  const subtitle = hasScheduleResult && scheduleType && SCHEDULE_TYPE_META[scheduleType]
-    ? `${SCHEDULE_TYPE_META[scheduleType].label} schedule — assigned possession time windows`
-    : 'Assigned possession time windows and required gang resources';
-
-  if (displayBlocks.length === 0) {
-    return (
-      <div className="panel">
-        <div className="panel-header">
-          <div>
-            <div className="panel-title">Possession Slot Breakdown</div>
-            <div className="panel-subtitle">{subtitle}</div>
-          </div>
-        </div>
-        <div className="panel-body">
-          <EmptyState
-            title="No Possessions Scheduled"
-            message={
-              hasScheduleResult && scheduleType
-                ? `No feasible maintenance windows found for the ${scheduleType} horizon starting ${targetDate}.`
-                : `No block possessions scheduled for ${targetDate}. Run CP-SAT optimization or adjust filters.`
-            }
-            icon="🚧"
-          />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="panel">
-      <div className="panel-header">
-        <div>
-          <div className="panel-title">Possession Slot Breakdown</div>
-          <div className="panel-subtitle">{subtitle}</div>
-        </div>
-      </div>
-      <div className="panel-body">
-        <div className="table-responsive">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Block ID</th>
-                <th>Location</th>
-                <th>Date</th>
-                <th>Start Time</th>
-                <th>End Time</th>
-                <th>Duration</th>
-                <th>Priority</th>
-                <th>Equipment Required</th>
-                <th>Fit Score</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayBlocks.map((b, idx) => (
-                <ScheduleTableRow
-                  key={(b.block_id || b.request_id || idx) + '-' + idx}
-                  b={b}
-                  idx={idx}
-                  targetDate={targetDate}
-                  onSelectBlock={onSelectBlock}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Searchable timetable stops table view.
- */
-function TimetableTable({ filteredTimetable, targetDate, timetableSearch, setTimetableSearch }) {
-  return (
-    <div>
-      <div className="filter-toolbar">
-        <div className="search-input-wrap">
-          <span className="search-icon">🔍</span>
-          <input
-            type="text"
-            className="search-input"
-            placeholder="Search Train ID or Station Code (e.g. G123, AJJ, KPD)..."
-            value={timetableSearch}
-            onChange={(e) => setTimetableSearch(e.target.value)}
-          />
-        </div>
-        <span className="badge badge-outline">
-          Showing {filteredTimetable.length} stops for {targetDate}
-        </span>
-      </div>
-
-      <div className="table-responsive">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Train ID</th>
-              <th>Service Date</th>
-              <th>Station Code</th>
-              <th>Sequence</th>
-              <th>Arrival Time</th>
-              <th>Departure Time</th>
-              <th>Platform</th>
-              <th>Source</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredTimetable.length === 0 ? (
-              <tr>
-                <td colSpan="8" style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
-                  No timetable stops found for {targetDate}.
-                </td>
-              </tr>
-            ) : (
-              filteredTimetable.map((tt, idx) => (
-                <tr key={(tt.train_id || 'TT') + idx}>
-                  <td className="table-cell-mono" style={{ fontWeight: 700, color: '#38bdf8' }}>
-                    {tt.train_id}
-                  </td>
-                  <td className="table-cell-mono">{tt.service_date}</td>
-                  <td className="table-cell-highlight">{tt.station_code}</td>
-                  <td className="table-cell-mono">#{tt.sequence}</td>
-                  <td className="table-cell-mono" style={{ color: tt.arrival_time ? '#34d399' : '#94a3b8' }}>
-                    {tt.arrival_time || 'Origin'}
-                  </td>
-                  <td className="table-cell-mono" style={{ color: tt.departure_time ? '#34d399' : '#94a3b8' }}>
-                    {tt.departure_time || 'Terminus'}
-                  </td>
-                  <td className="table-cell-mono">
-                    {tt.platform ? `PF ${tt.platform}` : '—'}
-                  </td>
-                  <td>
-                    <span className="badge badge-outline">{tt.source || 'timetable'}</span>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Main Schedule Page Component.
- */
 export default function Schedule({
   blocks = [],
   timetable = [],
@@ -300,7 +38,8 @@ export default function Schedule({
   error = null,
   onRetry,
 }) {
-  const [activeTab, setActiveTab] = useState('possession');
+  const [activeTab, setActiveTab] = useState('possession'); // 'possession' | 'timetable'
+  const [dateScope, setDateScope] = useState('DATE'); // 'DATE' | 'HORIZON'
   const [priorityFilter, setPriorityFilter] = useState('ALL');
   const [timetableSearch, setTimetableSearch] = useState('');
 
@@ -466,29 +205,125 @@ export default function Schedule({
 
       {/* ── Main Schedule View ────────────────────────────────────── */}
       <div className="panel">
-        <SchedulePanelHeader
-          displayBlocks={displayBlocks}
-          horizonTotal={horizonTotal}
-          targetDate={targetDate}
-          timetable={timetable}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-        />
+        <div className="panel-header">
+          <div>
+            <div className="panel-title">
+              <span>📅 Master Operational & Possession Schedule</span>
+              <span className="badge badge-cyan">
+                {displayBlocks.length} POSSESSIONS ({horizonLabel})
+              </span>
+              {!hasScheduleResult && dateScope === 'DATE' && horizonTotal > displayBlocks.length && (
+                <span className="badge badge-outline" title={`Full optimization horizon: ${horizonTotal} blocks across all dates`}>
+                  {horizonTotal} TOTAL HORIZON
+                </span>
+              )}
+              <span className="badge badge-outline">{timetable.length} TIMETABLE STOPS</span>
+            </div>
+            <div className="panel-subtitle">
+              Gantt timeline mapping maintenance possessions and scheduled train stops for{' '}
+              {hasScheduleResult
+                ? `${scheduleType} horizon starting ${targetDate}`
+                : targetDate}
+            </div>
+          </div>
+
+          <div className="segmented-control">
+            <button
+              className={`segmented-tab ${activeTab === 'possession' ? 'active' : ''}`}
+              onClick={() => setActiveTab('possession')}
+            >
+              🚧 Possession Schedule ({displayBlocks.length})
+            </button>
+            <button
+              className={`segmented-tab ${activeTab === 'timetable' ? 'active' : ''}`}
+              onClick={() => setActiveTab('timetable')}
+            >
+              🚆 Train Timetable ({timetable.length})
+            </button>
+          </div>
+        </div>
 
         <div className="panel-body">
           {error ? (
-            <ErrorState title="Failed to Load Schedule" message={error} onRetry={onRetry} />
+            <ErrorState
+              title="Failed to Load Schedule"
+              message={error}
+              onRetry={onRetry}
+            />
           ) : loading || scheduleLoading ? (
             <LoadingState message={scheduleLoading ? `Generating ${scheduleType} schedule…` : 'Generating schedule projection...'} />
           ) : activeTab === 'possession' ? (
             <>
-              <ScheduleFilterBar
-                priorityFilter={priorityFilter}
-                setPriorityFilter={setPriorityFilter}
-                displayBlocksCount={displayBlocks.length}
-                horizonTotal={horizonTotal}
-                targetDate={targetDate}
-              />
+              {/* Filter toolbar — only shown when not using a schedule result */}
+              {!hasScheduleResult && (
+                <div className="filter-toolbar">
+                  <div className="filter-group">
+                    <select
+                      className="select-control"
+                      value={dateScope}
+                      onChange={(e) => setDateScope(e.target.value)}
+                      title="Toggle between single-day service date possessions and multi-day horizon"
+                    >
+                      <option value="DATE">📅 Selected Date: {targetDate} ({dateTotal})</option>
+                      <option value="HORIZON">🌐 Entire Planning Horizon ({horizonTotal})</option>
+                    </select>
+
+                    <select
+                      className="select-control"
+                      value={priorityFilter}
+                      onChange={(e) => setPriorityFilter(e.target.value)}
+                    >
+                      <option value="ALL">All Priorities</option>
+                      <option value="Critical">Critical Priority</option>
+                      <option value="High">High Priority</option>
+                      <option value="Medium">Medium Priority</option>
+                      <option value="Low">Low Priority</option>
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <span className="badge badge-outline">
+                      Showing: {displayBlocks.length} {dateScope === 'DATE' ? `for ${targetDate}` : 'across horizon'}
+                    </span>
+                    {dateScope === 'DATE' && horizonTotal > displayBlocks.length && (
+                      <span className="badge badge-outline" style={{ color: '#94a3b8' }}>
+                        Horizon total: {horizonTotal}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* When a schedule result is active, show a priority filter only */}
+              {hasScheduleResult && (
+                <div className="filter-toolbar">
+                  <div className="filter-group">
+                    <select
+                      className="select-control"
+                      value={priorityFilter}
+                      onChange={(e) => setPriorityFilter(e.target.value)}
+                    >
+                      <option value="ALL">All Priorities</option>
+                      <option value="Critical">Critical Priority</option>
+                      <option value="High">High Priority</option>
+                      <option value="Medium">Medium Priority</option>
+                      <option value="Low">Low Priority</option>
+                    </select>
+                  </div>
+                  <span className="badge badge-outline" style={{ color: '#94a3b8' }}>
+                    {SCHEDULE_TYPE_META[scheduleType].icon} {scheduleType} horizon · {displayBlocks.length} possessions shown
+                  </span>
+                  <button
+                    className="btn btn-ghost"
+                    style={{ fontSize: 12, padding: '4px 10px' }}
+                    onClick={() => { setScheduleResult(null); setScheduleError(null); }}
+                  >
+                    ✕ Clear Schedule Result
+                  </button>
+                </div>
+              )}
+
+              {/* Lane-packed visual timeline */}
               <Timeline
                 blocks={displayBlocks}
                 targetDate={
@@ -500,25 +335,152 @@ export default function Schedule({
               />
             </>
           ) : (
-            <TimetableTable
-              filteredTimetable={filteredTimetable}
-              targetDate={targetDate}
-              timetableSearch={timetableSearch}
-              setTimetableSearch={setTimetableSearch}
-            />
+            /* Timetable Stops View */
+            <div>
+              <div className="filter-toolbar">
+                <div className="search-input-wrap">
+                  <span className="search-icon">🔍</span>
+                  <input
+                    type="text"
+                    className="search-input"
+                    placeholder="Search Train ID or Station Code (e.g. G123, AJJ, KPD)..."
+                    value={timetableSearch}
+                    onChange={(e) => setTimetableSearch(e.target.value)}
+                  />
+                </div>
+                <span className="badge badge-outline">
+                  Showing {filteredTimetable.length} stops for {targetDate}
+                </span>
+              </div>
+
+              <div className="table-responsive">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Train ID</th>
+                      <th>Service Date</th>
+                      <th>Station Code</th>
+                      <th>Sequence</th>
+                      <th>Arrival Time</th>
+                      <th>Departure Time</th>
+                      <th>Platform</th>
+                      <th>Source</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredTimetable.length === 0 ? (
+                      <tr>
+                        <td colSpan="8" style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
+                          No timetable stops found for {targetDate}.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredTimetable.map((tt, idx) => (
+                        <tr key={(tt.train_id || 'TT') + idx}>
+                          <td className="table-cell-mono" style={{ fontWeight: 700, color: '#38bdf8' }}>
+                            {tt.train_id}
+                          </td>
+                          <td className="table-cell-mono">{tt.service_date}</td>
+                          <td className="table-cell-highlight">{tt.station_code}</td>
+                          <td className="table-cell-mono">#{tt.sequence}</td>
+                          <td className="table-cell-mono" style={{ color: tt.arrival_time ? '#34d399' : '#94a3b8' }}>
+                            {tt.arrival_time || 'Origin'}
+                          </td>
+                          <td className="table-cell-mono" style={{ color: tt.departure_time ? '#34d399' : '#94a3b8' }}>
+                            {tt.departure_time || 'Terminus'}
+                          </td>
+                          <td className="table-cell-mono">
+                            {tt.platform ? `PF ${tt.platform}` : '—'}
+                          </td>
+                          <td>
+                            <span className="badge badge-outline">{tt.source || 'timetable'}</span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
         </div>
       </div>
 
       {/* ── Possession Slot Breakdown Table ───────────────────────── */}
       {activeTab === 'possession' && !error && !(loading || scheduleLoading) && (
-        <ScheduleTable
-          displayBlocks={displayBlocks}
-          targetDate={targetDate}
-          onSelectBlock={onSelectBlock}
-          hasScheduleResult={hasScheduleResult}
-          scheduleType={scheduleType}
-        />
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="panel-title">Possession Slot Breakdown</div>
+              <div className="panel-subtitle">
+                {hasScheduleResult
+                  ? `${SCHEDULE_TYPE_META[scheduleType].label} schedule — assigned possession time windows`
+                  : 'Assigned possession time windows and required gang resources'}
+              </div>
+            </div>
+          </div>
+          <div className="panel-body">
+            {displayBlocks.length === 0 ? (
+              <EmptyState
+                title="No Possessions Scheduled"
+                message={
+                  hasScheduleResult
+                    ? `No feasible maintenance windows found for the ${scheduleType} horizon starting ${targetDate}.`
+                    : `No block possessions scheduled for ${targetDate}. Run CP-SAT optimization or adjust filters.`
+                }
+                icon="🚧"
+              />
+            ) : (
+              <div className="table-responsive">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Block ID</th>
+                      <th>Location</th>
+                      <th>Date</th>
+                      <th>Start Time</th>
+                      <th>End Time</th>
+                      <th>Duration</th>
+                      <th>Priority</th>
+                      <th>Equipment Required</th>
+                      <th>Fit Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayBlocks.map((b, idx) => {
+                      const bId = b.block_id || b.request_id || `BLK-${idx + 1}`;
+                      const isOvernight = (b.start_time && b.end_time && b.end_time < b.start_time);
+
+                      return (
+                        <tr
+                          key={bId + idx}
+                          className="clickable"
+                          onClick={() => onSelectBlock && onSelectBlock(b)}
+                        >
+                          <td className="table-cell-mono" style={{ color: '#38bdf8', fontWeight: 700 }}>
+                            {bId} {isOvernight ? '🌙' : ''}
+                          </td>
+                          <td className="table-cell-highlight">{b.location}</td>
+                          <td className="table-cell-mono">{b.service_date || b.requested_date || targetDate}</td>
+                          <td className="table-cell-mono" style={{ color: '#34d399' }}>{b.start_time || b.requested_start}</td>
+                          <td className="table-cell-mono" style={{ color: '#34d399' }}>{b.end_time || b.requested_end}</td>
+                          <td className="table-cell-mono">{b.duration_minutes || b.required_duration}m</td>
+                          <td><PriorityBadge priority={b.priority} /></td>
+                          <td>{b.equipment || 'Standard Gang'}</td>
+                          <td>
+                            <span className="badge badge-cyan">
+                              {b.fit_score != null ? `${(b.fit_score * 100).toFixed(0)}%` : '—'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </PageContainer>
   );

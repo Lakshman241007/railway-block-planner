@@ -63,7 +63,6 @@ from backend.app.schemas.unified_data import (
 
 logger = logging.getLogger(__name__)
 
-
 def _infer_discipline(
     asset_type: Optional[str] = None,
     equipment: Optional[str] = None,
@@ -378,6 +377,8 @@ class CP_SAT_Optimizer:
             equipment=m.equipment,
             required_resources=m.required_resources,
             reason="Excluded from re-optimization run by operator preference.",
+            status="Unscheduled",
+            diagnostic_message="Excluded from re-optimization run by operator preference.",
         )
 
     def _make_excluded_block_record(self, b: BlockRecord, req_id: str) -> UnscheduledBlock:
@@ -395,6 +396,8 @@ class CP_SAT_Optimizer:
             equipment=None,
             required_resources=1,
             reason="Excluded from re-optimization run by operator preference.",
+            status="Unscheduled",
+            diagnostic_message="Excluded from re-optimization run by operator preference.",
         )
 
     def _build_maint_request_dict(
@@ -570,16 +573,41 @@ class CP_SAT_Optimizer:
                     win = windows_map.get(win_id)
                     if not win:
                         continue
+
+                    # Rule 1: Block Availability - do not allocate on Blocked windows
+                    win_status = getattr(win, "status", "Available")
+                    if win_status == "Blocked":
+                        continue
+
                     w_start_str = getattr(win, "start_time", "00:00") or "00:00"
                     w_end_str = getattr(win, "end_time", "23:59") or "23:59"
                     w_block_id = getattr(win, "block_id", None) or win_id
                     fit = getattr(m, "fit_score", 1.0) if hasattr(m, "fit_score") else (m.get("fit_score", 1.0) if isinstance(m, dict) else 1.0)
 
+                    w_start = _parse_time_to_minutes(w_start_str) or 0
+                    w_end = _parse_time_to_minutes(w_end_str) or 1440
+                    if w_end < w_start:
+                        w_end += 1440
+                    win_dur = getattr(win, "duration_minutes", None) or (w_end - w_start)
+                    item_dur = r_item["duration_minutes"]
+
+                    # Rule 2: Maintenance Duration - work must fit inside the availability window
+                    if item_dur > win_dur or (w_start + item_dur) > w_end:
+                        continue
+
+                    # Rule 3: Work / Block Compatibility - location must match corridor or section
+                    w_corridor = getattr(win, "corridor", None) or getattr(win, "location", None) or ""
+                    w_section = getattr(win, "section", None) or ""
+                    r_loc = r_item.get("location", "")
+                    if (w_corridor or w_section) and r_loc:
+                        if not (_locations_match(r_loc, w_corridor) or (w_section and _locations_match(r_loc, w_section))):
+                            continue
+
                     s_id = f"OPT-SLOT-{slot_counter:04d}"
                     slot_counter += 1
                     requests_to_slots[req_id].append(s_id)
-                    s_start = _parse_time_to_minutes(w_start_str) or 0
-                    s_end = s_start + r_item["duration_minutes"]
+                    s_start = w_start
+                    s_end = s_start + item_dur
                     dev_mins = abs(s_start - pref_mins)
 
                     slot_metadata[s_id] = {
@@ -664,9 +692,20 @@ class CP_SAT_Optimizer:
             required_resources=r_item["required_resources"],
             status="Scheduled",
             assigned_slot_id=sched_slot_id,
+            window_id=meta.get("window_id"),
             fit_score=meta["fit_score"],
             is_preferred_match=meta["is_preferred_match"],
             deviation_minutes=dev_mins,
+            discipline=_infer_discipline(
+                asset_type=r_item.get("asset_type"),
+                equipment=r_item.get("equipment"),
+                location=r_item.get("location"),
+                request_id=r_item.get("request_id"),
+                reason=r_item.get("reason"),
+            ),
+            block_type=r_item.get("block_type") or r_item.get("work_type") or "Maintenance",
+            corridor=meta.get("corridor") or r_item.get("location") or r_item.get("corridor"),
+            reason=r_item.get("reason"),
             is_pinned=is_pinned,
             is_shifted=is_shifted,
             priority_value=r_item.get("priority_value"),
@@ -678,15 +717,30 @@ class CP_SAT_Optimizer:
         self,
         r_item: Dict[str, Any],
         s_ids: List[str],
+        solver_status: Optional[OptimizationStatus] = None,
     ) -> UnscheduledBlock:
-        """Create an UnscheduledBlock diagnostic item."""
+        """Create an UnscheduledBlock diagnostic item with specific causal attribution."""
         dur = r_item.get("duration_minutes", 0)
+        res_contention: Optional[str] = None
+
         if dur > 1440:
             reason = f"INVALID_REQUEST: Duration exceeds 24-hour day boundary ({dur}m > 1440m)."
+        elif solver_status == OptimizationStatus.INFEASIBLE:
+            reason = "INFEASIBLE_PROBLEM: Problem or mandatory constraints are mathematically infeasible."
+        elif solver_status == OptimizationStatus.TIME_LIMIT:
+            reason = "SOLVER_TIME_LIMIT: Solver reached time limit before scheduling this request."
+        elif solver_status == OptimizationStatus.MODEL_INVALID:
+            reason = "MODEL_INVALID: Optimization model contains invalid parameters or constraints."
         elif not s_ids:
             reason = "NO_FEASIBLE_WINDOW: No feasible conflict-free time window available within timetable / traffic headroom."
         else:
-            reason = "Preempted by higher-priority request or equipment capacity limits."
+            equip = r_item.get("equipment")
+            if equip and equip.strip().lower() != "none":
+                res_contention = f"Contention on equipment '{equip}' or track capacity limits."
+                reason = f"Preempted by higher-priority request or equipment capacity limits ({equip})."
+            else:
+                reason = "Preempted by higher-priority request or corridor capacity limits."
+
         return UnscheduledBlock(
             request_id=r_item["request_id"],
             asset_id=r_item["asset_id"],
@@ -699,8 +753,11 @@ class CP_SAT_Optimizer:
             equipment=r_item["equipment"],
             required_resources=r_item["required_resources"],
             reason=reason,
+            resource_contention=res_contention,
             priority_value=r_item.get("priority_value"),
             priority_enrichment=r_item.get("priority_enrichment"),
+            status="Unscheduled",
+            diagnostic_message=reason,
         )
 
     def _extract_results(
@@ -738,7 +795,7 @@ class CP_SAT_Optimizer:
                 scheduled.append(block)
                 block_counter += 1
             else:
-                unscheduled.append(self._build_unscheduled_block(r_item, s_ids))
+                unscheduled.append(self._build_unscheduled_block(r_item, s_ids, solver_status=solver_status))
 
         return scheduled, unscheduled
 

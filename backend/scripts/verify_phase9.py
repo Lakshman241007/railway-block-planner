@@ -124,7 +124,7 @@ else:
 
 if plan_id:
     print(f"Testing lifecycle with plan: {plan_id}")
-    
+
     # Check plan status endpoint
     status, status_data = request("GET", f"/api/plans/{plan_id}/status")
     assert status == 200
