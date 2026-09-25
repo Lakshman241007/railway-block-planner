@@ -1,3 +1,5 @@
+.vs/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -16,11 +18,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
 # Secrets — RULE-06.4: never commit credentials
 secrets.json
-config_local.py
+config_local.py. v s /

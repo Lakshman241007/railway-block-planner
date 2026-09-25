@@ -3,14 +3,18 @@
  * Connects directly to FastAPI backend on http://127.0.0.1:8000
  */
 
+import { getActiveRole } from '../auth/AuthContext';
+
 const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '' : 'http://127.0.0.1:8000');
 
 export async function apiFetch(endpoint, options = {}) {
   const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
+  const currentRole = getActiveRole();
   
   const defaultHeaders = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
+    'X-User-Role': currentRole,
   };
 
   const config = {

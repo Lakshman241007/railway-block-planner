@@ -104,8 +104,10 @@ export default function BlockTable({
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan="10" style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
-                    No matching block requests found.
+                  <td colSpan="10" style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-secondary)' }}>
+                    <div style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🔍</div>
+                    <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.92rem' }}>No Matching Block Requests Found</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>Try adjusting your search terms or status/priority filters.</div>
                   </td>
                 </tr>
               ) : (

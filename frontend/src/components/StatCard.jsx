@@ -37,8 +37,19 @@ export default function StatCard({
       <div className="stat-card-value">{value}</div>
 
       <div className="stat-card-footer">
-        {badge && <span className={`badge ${getBadgeClass(badgeType)}`}>{badge}</span>}
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subtitle}</span>
+        {badge && <span className={`badge ${getBadgeClass(badgeType)}`} style={{ flexShrink: 0 }}>{badge}</span>}
+        <span
+          title={subtitle}
+          style={{
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            fontSize: '0.72rem',
+            color: '#8899ac',
+          }}
+        >
+          {subtitle}
+        </span>
       </div>
     </div>
   );

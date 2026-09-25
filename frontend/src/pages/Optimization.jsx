@@ -11,6 +11,7 @@ import OptimizationPanel from '../components/OptimizationPanel';
 export default function Optimization({
   targetDate,
   onRunOptimization,
+  onResetBaseline,
   isOptimizing,
   optimizationResult,
   optimizationStep,
@@ -23,6 +24,7 @@ export default function Optimization({
       <OptimizationPanel
         targetDate={targetDate}
         onRunOptimization={onRunOptimization}
+        onResetBaseline={onResetBaseline}
         isOptimizing={isOptimizing}
         optimizationResult={optimizationResult}
         optimizationStep={optimizationStep}

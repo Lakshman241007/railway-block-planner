@@ -18,6 +18,7 @@ import { useCandidateTasks } from './useCandidateTasks';
 export default function OptimizationPanel({
   targetDate,
   onRunOptimization,
+  onResetBaseline,
   isOptimizing,
   optimizationResult,
   optimizationStep = 0,
@@ -86,6 +87,19 @@ export default function OptimizationPanel({
         isOptimizing={isOptimizing}
         optimizationStep={optimizationStep}
       />
+
+      {onResetBaseline && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            className="btn btn-secondary"
+            onClick={onResetBaseline}
+            disabled={isOptimizing}
+            title="Reset database back to baseline unoptimized state"
+          >
+            🔄 Reset Baseline
+          </button>
+        </div>
+      )}
 
       <ReoptStrategySelector
         strategy={strategy}

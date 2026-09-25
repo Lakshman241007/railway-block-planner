@@ -144,14 +144,40 @@ class ConflictDetector:
     def _gather_proposed_windows(self, proposed_schedule: Any, c_date: date) -> List[Dict[str, Any]]:
         """Extract intervals from proposed ScheduleResult or list of OptimizedBlock."""
         windows: List[Dict[str, Any]] = []
-        raw_items = getattr(proposed_schedule, "scheduled_items", None)
+        raw_items = getattr(proposed_schedule, "scheduled_blocks", None) or getattr(proposed_schedule, "scheduled_items", None)
         if raw_items is None and isinstance(proposed_schedule, (list, tuple)):
             raw_items = proposed_schedule
+        elif raw_items is None and isinstance(proposed_schedule, dict):
+            raw_items = proposed_schedule.get("scheduled_blocks") or proposed_schedule.get("scheduled_items") or []
         elif raw_items is None:
             raw_items = []
 
         for item in raw_items:
-            if hasattr(item, "assigned_slot") and item.assigned_slot:
+            if isinstance(item, dict):
+                s_time = item.get("start_time") or item.get("requested_start")
+                s_date = item.get("service_date") or item.get("requested_date")
+                if isinstance(s_date, str):
+                    try:
+                        s_date = date.fromisoformat(s_date)
+                    except Exception:
+                        s_date = c_date
+                dur = int(item.get("duration_minutes") or item.get("duration") or 60)
+                s_min = _parse_time_to_minutes(s_time)
+                if s_min is not None and s_date:
+                    day_offset = (s_date - c_date).days * 1440
+                    abs_s = day_offset + s_min
+                    abs_e = abs_s + dur
+                    b_id = item.get("block_request_id") or item.get("request_id") or item.get("block_id") or "BLK"
+                    windows.append({
+                        "id": b_id,
+                        "type": "OptimizedBlock",
+                        "location": item.get("location", ""),
+                        "start": abs_s,
+                        "end": abs_e,
+                        "priority": item.get("priority", Priority.MEDIUM),
+                        "equipment": item.get("equipment"),
+                    })
+            elif hasattr(item, "assigned_slot") and item.assigned_slot:
                 s_min = _parse_time_to_minutes(item.assigned_slot.start_time)
                 if s_min is not None:
                     day_off = (item.assigned_slot.service_date - c_date).days * 1440
@@ -171,10 +197,10 @@ class ConflictDetector:
                     day_off = (item.service_date - c_date).days * 1440
                     abs_s = day_off + s_min
                     dur = getattr(item, "duration_minutes", 60)
-                    b_id = getattr(item, "block_id", None) or getattr(item, "request_id", "BLK")
+                    b_id = getattr(item, "block_request_id", None) or getattr(item, "block_id", None) or getattr(item, "request_id", "BLK")
                     windows.append({
                         "id": b_id,
-                        "type": "ScheduledBlock",
+                        "type": "OptimizedBlock",
                         "location": item.location,
                         "start": abs_s,
                         "end": abs_s + dur,
@@ -290,12 +316,13 @@ class ConflictDetector:
         """Create conflict item for direct passenger train overlap."""
         dur = overlap_e - overlap_s
         p_blk = blk.get("priority", Priority.MEDIUM)
-        is_crit = (p_blk == Priority.CRITICAL)
+        p_val = p_blk.value if hasattr(p_blk, "value") else str(p_blk)
+        is_crit = (p_blk == Priority.CRITICAL or (isinstance(p_blk, str) and p_blk.upper() == "CRITICAL"))
         prec_id = blk["id"] if is_crit else tt.train_id
         action = (
             f"Emergency Precedence: Passenger Train {tt.train_id} held or routed via loop line; prioritize emergency possession {blk['id']} (Critical)."
             if is_crit
-            else f"Train Movement Precedence: Passenger Train {tt.train_id} has scheduled corridor priority. Defer {blk['type']} {blk['id']} ({p_blk.value}) by +{dur + self.buffer_minutes} mins."
+            else f"Train Movement Precedence: Passenger Train {tt.train_id} has scheduled corridor priority. Defer {blk['type']} {blk['id']} ({p_val}) by +{dur + self.buffer_minutes} mins."
         )
         return ConflictItem(
             conflict_id=f"CONF-{c_idx:04d}",
@@ -313,7 +340,7 @@ class ConflictDetector:
             description=f"Train {tt.train_id} scheduled at {tt.station_code} overlaps with {blk['type']} {blk['id']}.",
             suggested_action=action,
             entity1_priority="Passenger Timetable",
-            entity2_priority=p_blk.value,
+            entity2_priority=p_val,
             precedence_entity_id=prec_id,
             resolution_strategy="Emergency Holding / Diversion" if is_crit else "Shift Maintenance Block",
         )
@@ -334,6 +361,8 @@ class ConflictDetector:
             return None
 
         buf_gap = min(gap_before if gap_before >= 0 else 9999, gap_after if gap_after >= 0 else 9999)
+        p_blk = blk.get("priority", Priority.MEDIUM)
+        p_val = p_blk.value if hasattr(p_blk, "value") else str(p_blk)
         return ConflictItem(
             conflict_id=f"CONF-{c_idx:04d}",
             conflict_type=ConflictType.SAFETY_BUFFER_VIOLATION,
@@ -350,7 +379,7 @@ class ConflictDetector:
             description=f"Train {tt.train_id} passes within {buf_gap} min (< {self.buffer_minutes} min safety buffer) of {blk['type']} {blk['id']}.",
             suggested_action=f"Increase clearance gap to minimum {self.buffer_minutes} minutes.",
             entity1_priority="Passenger Timetable",
-            entity2_priority=blk.get("priority", Priority.MEDIUM).value,
+            entity2_priority=p_val,
         )
 
     def _detect_goods_conflicts(
@@ -413,6 +442,7 @@ class ConflictDetector:
             sev = ConflictSeverity.HIGH if p_blk in (Priority.CRITICAL, Priority.HIGH) else ConflictSeverity.MEDIUM
             note = ""
 
+        p_val = p_blk.value if hasattr(p_blk, "value") else str(p_blk)
         return ConflictItem(
             conflict_id=f"CONF-{c_idx:04d}",
             conflict_type=ConflictType.TRAIN_BLOCK,
@@ -427,9 +457,9 @@ class ConflictDetector:
             entity2_type=blk["type"],
             entity2_id=blk["id"],
             description=f"Forecasted goods movement {fc.train_id} on {fc.section} overlaps with {blk['type']} {blk['id']}{note}.",
-            suggested_action=f"Traffic Precedence: Route goods train {fc.train_id} via Loop line siding to prioritize {blk['type']} {blk['id']} ({p_blk.value}).",
+            suggested_action=f"Traffic Precedence: Route goods train {fc.train_id} via Loop line siding to prioritize {blk['type']} {blk['id']} ({p_val}).",
             entity1_priority="Freight Movement",
-            entity2_priority=p_blk.value,
+            entity2_priority=p_val,
             precedence_entity_id=blk["id"],
             resolution_strategy="Reroute / Loop Line Possession",
         )

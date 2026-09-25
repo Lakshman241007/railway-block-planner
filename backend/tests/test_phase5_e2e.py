@@ -313,7 +313,8 @@ class TestScenarioF_OptimizationPersistence:
     """Scenario F: Running CP-SAT optimization via POST /api/plans/optimize persists the plan."""
 
     @pytest.fixture(scope="class")
-    def optimization_response(self):
+    @classmethod
+    def optimization_response(cls):
         """Run optimization and cache result for all tests in this class."""
         response = client.post("/api/plans/optimize", json={
             "target_date": TARGET_DATE,

@@ -63,6 +63,30 @@ from backend.app.schemas.unified_data import (
 
 logger = logging.getLogger(__name__)
 
+
+def _infer_discipline(
+    asset_type: Optional[str] = None,
+    equipment: Optional[str] = None,
+    location: Optional[str] = None,
+    request_id: Optional[str] = None,
+    reason: Optional[str] = None,
+) -> str:
+    """Infer operational railway discipline for timeline grouping."""
+    combined = f"{asset_type or ''} {equipment or ''} {location or ''} {request_id or ''} {reason or ''}".lower()
+    if any(k in combined for k in ["ohe", "traction", "overhead", "power", "electric"]):
+        return "ohe"
+    if any(k in combined for k in ["sig", "telecom", "signal", "cable"]):
+        return "signal"
+    if any(k in combined for k in ["bridge", "girder", "pamban"]):
+        return "bridge"
+    if any(k in combined for k in ["point", "crossing", "switch"]) and not any(k in combined for k in ["level", "lc", "gate", "boom", "lvl"]):
+        return "points"
+    if any(k in combined for k in ["lc", "level_crossing", "level crossing", "gate", "boom", "lvl"]):
+        return "level_crossing"
+    return "track"
+
+
+# Default configuration path
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent.parent / "config" / "constraints.yaml"
 
 # Feature 3 Strategy presets defining mathematical objective trade-offs

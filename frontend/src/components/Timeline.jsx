@@ -8,7 +8,7 @@
  */
 
 import React from 'react';
-import { CORRIDOR_DISCIPLINES, parseTimeToMinutes } from '../types';
+import { CORRIDOR_DISCIPLINES, inferDiscipline, parseTimeToMinutes } from '../types';
 
 const LANE_BLOCK_HEIGHT = 38;
 const LANE_GAP = 5;
@@ -209,7 +209,6 @@ export default function Timeline({
     disciplineMap[d.id] = [];
   });
 
-  blocks.forEach((block) => {
     const disciplineId = assignDiscipline(block);
     if (!disciplineMap[disciplineId]) {
       disciplineMap[disciplineId] = [];

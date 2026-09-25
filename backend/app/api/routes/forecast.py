@@ -13,7 +13,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from backend.app.api.dependencies import get_db
+from backend.app.api.dependencies import get_db, require_operator_role
 from backend.app.database.repositories import (
     MovementRepository,
     TimetableRepository,
@@ -61,6 +61,7 @@ def get_goods_forecast(
 def run_goods_forecast(
     request: ForecastRequest,
     db: Session = Depends(get_db),
+    _role: str = Depends(require_operator_role),
 ) -> GoodsForecastResult:
     """
     Trigger goods train forecasting with structured request parameters.

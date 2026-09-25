@@ -6,15 +6,18 @@ Forecast → Scheduler → Conflict Detection → CP-SAT Optimization → Indepe
 
 import os
 import sys
-sys.path.insert(0, os.getcwd())
+from pathlib import Path
+
+# Add project root to sys.path so script can run from any working directory
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from datetime import date, timedelta
 import json
 import time
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
+from backend.app.database.connection import SessionLocal
 from backend.app.database.repositories import (
     BlockRepository,
     MaintenanceRepository,
@@ -31,8 +34,6 @@ from backend.app.block_planner.planner import BlockPlanner
 from backend.app.block_planner.schemas import BlockPlanRequest
 
 def main():
-    engine = create_engine("sqlite:///railway_block_planner.db")
-    SessionLocal = sessionmaker(bind=engine)
     db = SessionLocal()
 
     target_d = date(2026, 9, 7)

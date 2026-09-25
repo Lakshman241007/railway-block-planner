@@ -1,9 +1,9 @@
 """
-FastAPI application for Railway Block Planner (Phase 5).
+FastAPI application for Railway Block Planner.
 
 Exposes REST APIs for interacting with persistent unified railway data,
 goods train forecasting, maintenance slot scheduling, CP-SAT mathematical
-optimization, and conflict detection.
+optimization, human-in-the-loop review, and AI prioritization.
 """
 
 from __future__ import annotations
@@ -22,8 +22,21 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.app.api.dependencies import get_db
-from backend.app.api.routes import blocks, forecast, maintenance, movements, plans, scheduler, timetable, trains
-from backend.app.api.routes.phase9_review import conflicts_router as phase9_conflicts_router, plans_review_router as phase9_plans_router
+from backend.app.api.routes import (
+    blocks,
+    forecast,
+    maintenance,
+    movements,
+    plans,
+    prioritization,
+    scheduler,
+    timetable,
+    trains,
+)
+from backend.app.api.routes.phase9_review import (
+    conflicts_router as phase9_conflicts_router,
+    plans_review_router as phase9_plans_router,
+)
 from backend.app.database.connection import SessionLocal, init_db
 from backend.app.database.seed import seed_database
 
@@ -58,7 +71,7 @@ app = FastAPI(
         "Centralized railway maintenance block planning backend exposing "
         "persisted unified operational entities, goods train forecasting, "
         "heuristic slot scheduling, CP-SAT mathematical optimization, "
-        "and spatial-temporal conflict detection."
+        "AI prioritization, and spatial-temporal conflict detection."
     ),
     version="0.6.0",
     docs_url="/docs",
@@ -100,7 +113,7 @@ def health_check() -> Dict[str, Any]:
         "status": "ok" if db_status == "connected" else "degraded",
         "database": db_status,
         "version": "0.6.0",
-        "phase": "Phase 6 - Final System Hardening & Acceptance Validation",
+        "phase": "Unified Master Architecture",
     }
 
 
@@ -117,7 +130,7 @@ app.include_router(forecast.router, prefix="/api")
 app.include_router(scheduler.router, prefix="/api")
 app.include_router(timetable.router, prefix="/api")
 app.include_router(movements.router, prefix="/api")
-
+app.include_router(prioritization.router, prefix="/api")
 
 # Alias /api/conflicts to scheduler.detect_conflicts for top-level access
 @app.api_route(
@@ -166,7 +179,7 @@ if FRONTEND_DIST.exists():
                 "version": "0.6.0",
                 "docs": "/docs",
                 "health": "/health",
-                "phase": "Phase 6 - Final System Hardening & Acceptance Validation",
+                "phase": "Unified Master Architecture",
             }
 
         # Serve the requested file if it exists, otherwise fallback to index.html for SPA routing
@@ -187,6 +200,6 @@ else:
             "version": "0.6.0",
             "docs": "/docs",
             "health": "/health",
-            "phase": "Phase 6 - Final System Hardening & Acceptance Validation",
+            "phase": "Unified Master Architecture",
             "note": "Frontend dist directory not found. Serving API only."
         }

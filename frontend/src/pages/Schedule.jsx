@@ -1,19 +1,31 @@
-/**
- * @file Schedule.jsx
- * @description Master optimized maintenance possession schedule and timetable page.
- * Displays multi-lane 24-hour Gantt chart, timetable stop inspector, and possession breakdown
- * with live reflection of manual timetable shifts (↔️), edits (✏️), and pinned slots (📌).
- * Adheres to CS-001-REV-1.0 (RULE-01.1: <= 60 lines per function, RULE-03.2: header).
- * @module pages/Schedule
- */
-
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import PageContainer from '../components/PageContainer';
 import Timeline from '../components/Timeline';
 import PriorityBadge from '../components/PriorityBadge';
 import LoadingState from '../components/LoadingState';
 import ErrorState from '../components/ErrorState';
 import EmptyState from '../components/EmptyState';
+import { getCanonicalPossessions, ScheduleType } from '../types';
+import { generateSchedule } from '../services/scheduler';
+
+/** Human-readable labels and descriptions for each schedule type. */
+const SCHEDULE_TYPE_META = {
+  [ScheduleType.DAILY]: {
+    label: 'Daily',
+    icon: '📅',
+    description: 'Plan for the selected day.',
+  },
+  [ScheduleType.WEEKLY]: {
+    label: 'Weekly',
+    icon: '🗓️',
+    description: 'Plan across 7 days starting from the selected date.',
+  },
+  [ScheduleType.MONTHLY]: {
+    label: 'Monthly',
+    icon: '📆',
+    description: 'Plan from the selected date through the end of the month.',
+  },
+};
 
 /**
  * Header toolbar with segmented tab toggle between Possession and Timetable views.
@@ -130,20 +142,28 @@ function ScheduleTableRow({ b, idx, targetDate, onSelectBlock }) {
 /**
  * Detailed breakdown table of scheduled possession slots.
  */
-function ScheduleTable({ displayBlocks, targetDate, onSelectBlock }) {
+function ScheduleTable({ displayBlocks, targetDate, onSelectBlock, hasScheduleResult = false, scheduleType = ScheduleType.DAILY }) {
+  const subtitle = hasScheduleResult && scheduleType && SCHEDULE_TYPE_META[scheduleType]
+    ? `${SCHEDULE_TYPE_META[scheduleType].label} schedule — assigned possession time windows`
+    : 'Assigned possession time windows and required gang resources';
+
   if (displayBlocks.length === 0) {
     return (
       <div className="panel">
         <div className="panel-header">
           <div>
             <div className="panel-title">Possession Slot Breakdown</div>
-            <div className="panel-subtitle">Assigned possession time windows and required gang resources</div>
+            <div className="panel-subtitle">{subtitle}</div>
           </div>
         </div>
         <div className="panel-body">
           <EmptyState
             title="No Possessions Scheduled"
-            message={`No block possessions scheduled for ${targetDate}. Run CP-SAT optimization or adjust filters.`}
+            message={
+              hasScheduleResult && scheduleType
+                ? `No feasible maintenance windows found for the ${scheduleType} horizon starting ${targetDate}.`
+                : `No block possessions scheduled for ${targetDate}. Run CP-SAT optimization or adjust filters.`
+            }
             icon="🚧"
           />
         </div>
@@ -156,7 +176,7 @@ function ScheduleTable({ displayBlocks, targetDate, onSelectBlock }) {
       <div className="panel-header">
         <div>
           <div className="panel-title">Possession Slot Breakdown</div>
-          <div className="panel-subtitle">Assigned possession time windows and required gang resources</div>
+          <div className="panel-subtitle">{subtitle}</div>
         </div>
       </div>
       <div className="panel-body">
@@ -284,20 +304,69 @@ export default function Schedule({
   const [priorityFilter, setPriorityFilter] = useState('ALL');
   const [timetableSearch, setTimetableSearch] = useState('');
 
-  const allOptimizedBlocks = optimizationResult?.scheduled_blocks || [];
-  const horizonTotal = allOptimizedBlocks.length;
+  // Schedule-type selector state
+  const [scheduleType, setScheduleType] = useState(ScheduleType.DAILY);
+  const [scheduleResult, setScheduleResult] = useState(null);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [scheduleError, setScheduleError] = useState(null);
 
-  const displayBlocks = (horizonTotal > 0
-    ? allOptimizedBlocks.filter((b) => {
-        const blockDate = b.service_date ? String(b.service_date) : null;
-        const dateMatch = blockDate ? blockDate === targetDate : true;
-        const pMatch = priorityFilter === 'ALL' || String(b.priority).toLowerCase() === priorityFilter.toLowerCase();
-        return dateMatch && pMatch;
-      })
-    : blocks.filter((b) => {
-        const pMatch = priorityFilter === 'ALL' || String(b.priority).toLowerCase() === priorityFilter.toLowerCase();
-        return pMatch;
-      }));
+  /** Flatten a ScheduleResult into displayable block-like rows. */
+  const flattenScheduleItems = (result) => {
+    if (!result) return [];
+    const rows = [];
+    for (const item of result.scheduled_items || []) {
+      if (item.assigned_slot) {
+        rows.push({
+          block_id: item.block_id || item.asset_id || item.schedule_id,
+          location: item.location,
+          service_date: item.assigned_slot.service_date,
+          start_time: item.assigned_slot.start_time,
+          end_time: item.assigned_slot.end_time,
+          duration_minutes: item.assigned_slot.duration_minutes,
+          fit_score: item.assigned_slot.fit_score,
+          priority: item.priority,
+          status: item.status,
+          notes: item.notes,
+        });
+      }
+    }
+    return rows;
+  };
+
+  const handleRunSchedule = useCallback(async (type) => {
+    setScheduleType(type);
+    setScheduleLoading(true);
+    setScheduleError(null);
+    setScheduleResult(null);
+    try {
+      const result = await generateSchedule({
+        target_date: targetDate || null,
+        schedule_type: type,
+      });
+      setScheduleResult(result);
+    } catch (err) {
+      setScheduleError(err?.message || 'Scheduling request failed. Check API connectivity.');
+    } finally {
+      setScheduleLoading(false);
+    }
+  }, [targetDate]);
+
+  // When a schedule result exists, use its items as the possession display source
+  const scheduledRows = flattenScheduleItems(scheduleResult);
+  const hasScheduleResult = scheduleResult !== null;
+
+  const {
+    possessions: displayBlocks,
+    isOptimized,
+    horizonTotal,
+    dateTotal,
+  } = getCanonicalPossessions({
+    optimizationResult: hasScheduleResult ? null : optimizationResult,
+    blocks: hasScheduleResult ? scheduledRows : blocks,
+    targetDate,
+    dateScope: hasScheduleResult ? 'HORIZON' : dateScope,
+    priorityFilter,
+  });
 
   const filteredTimetable = timetable.filter((tt) => {
     if (!timetableSearch) return true;
@@ -305,8 +374,97 @@ export default function Schedule({
            (tt.station_code && tt.station_code.toLowerCase().includes(timetableSearch.toLowerCase()));
   });
 
+  const horizonLabel = {
+    [ScheduleType.DAILY]: targetDate,
+    [ScheduleType.WEEKLY]: '7-DAY HORIZON',
+    [ScheduleType.MONTHLY]: 'MONTHLY HORIZON',
+  }[scheduleType] || targetDate;
+
   return (
     <PageContainer>
+      {/* ── Schedule Type Selector ────────────────────────────────── */}
+      <div className="panel" style={{ marginBottom: 0 }}>
+        <div className="panel-header" style={{ paddingBottom: 12 }}>
+          <div>
+            <div className="panel-title">🗂️ Schedule Planning Horizon</div>
+            <div className="panel-subtitle">
+              Select a scheduling mode, then generate to see conflict-free maintenance slots.
+            </div>
+          </div>
+        </div>
+        <div className="panel-body" style={{ paddingTop: 4 }}>
+          {/* Mode selector buttons */}
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+            {Object.values(ScheduleType).map((type) => {
+              const meta = SCHEDULE_TYPE_META[type];
+              const isActive = scheduleType === type;
+              return (
+                <button
+                  key={type}
+                  id={`schedule-type-${type}`}
+                  className={`segmented-tab${isActive ? ' active' : ''}`}
+                  onClick={() => setScheduleType(type)}
+                  title={meta.description}
+                  style={{ minWidth: 110 }}
+                >
+                  {meta.icon} {meta.label}
+                </button>
+              );
+            })}
+
+            <button
+              id="btn-generate-schedule"
+              className="btn btn-primary"
+              onClick={() => handleRunSchedule(scheduleType)}
+              disabled={scheduleLoading}
+              style={{ marginLeft: 'auto' }}
+            >
+              {scheduleLoading ? '⏳ Generating…' : '▶ Generate Schedule'}
+            </button>
+          </div>
+
+          {/* Horizon description */}
+          <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 4 }}>
+            <strong style={{ color: '#cbd5e1' }}>
+              {SCHEDULE_TYPE_META[scheduleType].icon} {SCHEDULE_TYPE_META[scheduleType].label}:
+            </strong>{' '}
+            {SCHEDULE_TYPE_META[scheduleType].description}
+          </div>
+
+          {/* Schedule result summary */}
+          {scheduleResult && !scheduleLoading && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+              <span className="badge badge-cyan">
+                {scheduleResult.total_scheduled} SCHEDULED
+              </span>
+              <span className="badge badge-critical">
+                {scheduleResult.total_unfeasible} UNFEASIBLE
+              </span>
+              <span className="badge badge-outline">
+                {scheduleResult.total_requested} TOTAL REQUESTS
+              </span>
+              <span className="badge badge-outline" style={{ color: '#94a3b8' }}>
+                Generated {scheduleResult.generated_at?.slice(0, 16).replace('T', ' ')} UTC
+              </span>
+            </div>
+          )}
+
+          {/* Schedule-level error */}
+          {scheduleError && !scheduleLoading && (
+            <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 6, background: 'rgba(239,68,68,0.1)', color: '#f87171', fontSize: 13 }}>
+              ⚠️ {scheduleError}
+              <button
+                style={{ marginLeft: 12, textDecoration: 'underline', background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: 13 }}
+                onClick={() => handleRunSchedule(scheduleType)}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Main Schedule View ────────────────────────────────────── */}
       <div className="panel">
         <SchedulePanelHeader
           displayBlocks={displayBlocks}
@@ -320,8 +478,8 @@ export default function Schedule({
         <div className="panel-body">
           {error ? (
             <ErrorState title="Failed to Load Schedule" message={error} onRetry={onRetry} />
-          ) : loading ? (
-            <LoadingState message="Generating schedule projection..." />
+          ) : loading || scheduleLoading ? (
+            <LoadingState message={scheduleLoading ? `Generating ${scheduleType} schedule…` : 'Generating schedule projection...'} />
           ) : activeTab === 'possession' ? (
             <>
               <ScheduleFilterBar
@@ -333,7 +491,11 @@ export default function Schedule({
               />
               <Timeline
                 blocks={displayBlocks}
-                targetDate={targetDate}
+                targetDate={
+                  hasScheduleResult
+                    ? `${targetDate} (${SCHEDULE_TYPE_META[scheduleType].label} Horizon)`
+                    : dateScope === 'DATE' ? targetDate : `${targetDate} (Horizon)`
+                }
                 onSelectBlock={onSelectBlock}
               />
             </>
@@ -348,11 +510,14 @@ export default function Schedule({
         </div>
       </div>
 
-      {activeTab === 'possession' && !error && !loading && (
+      {/* ── Possession Slot Breakdown Table ───────────────────────── */}
+      {activeTab === 'possession' && !error && !(loading || scheduleLoading) && (
         <ScheduleTable
           displayBlocks={displayBlocks}
           targetDate={targetDate}
           onSelectBlock={onSelectBlock}
+          hasScheduleResult={hasScheduleResult}
+          scheduleType={scheduleType}
         />
       )}
     </PageContainer>
