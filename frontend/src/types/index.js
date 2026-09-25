@@ -35,6 +35,42 @@ export const ConflictSeverity = {
   LOW: 'Low',
 };
 
+export const ConflictReviewStatus = {
+  DETECTED: 'DETECTED',
+  AUTO_RESOLVED: 'AUTO_RESOLVED',
+  REQUIRES_HUMAN_REVIEW: 'REQUIRES_HUMAN_REVIEW',
+  HUMAN_RESOLVED: 'HUMAN_RESOLVED',
+  REJECTED: 'REJECTED',
+  DEFERRED: 'DEFERRED',
+};
+
+export const PlanApprovalStatus = {
+  DRAFT: 'DRAFT',
+  OPTIMIZED: 'OPTIMIZED',
+  UNDER_REVIEW: 'UNDER_REVIEW',
+  APPROVED: 'APPROVED',
+  PUBLISHED: 'PUBLISHED',
+  REJECTED: 'REJECTED',
+};
+
+export function getConflictReviewBadgeClass(status) {
+  const s = String(status || '').toUpperCase();
+  if (s === 'AUTO_RESOLVED' || s === 'HUMAN_RESOLVED' || s === 'RESOLVED') return 'badge-low';
+  if (s === 'REQUIRES_HUMAN_REVIEW' || s === 'UNDER_REVIEW') return 'badge-critical';
+  if (s === 'DETECTED' || s === 'DEFERRED') return 'badge-medium';
+  if (s === 'REJECTED') return 'badge-critical';
+  return 'badge-outline';
+}
+
+export function getPlanApprovalBadgeClass(status) {
+  const s = String(status || '').toUpperCase();
+  if (s === 'PUBLISHED') return 'badge-low';
+  if (s === 'APPROVED') return 'badge-high';
+  if (s === 'UNDER_REVIEW' || s === 'OPTIMIZED') return 'badge-medium';
+  if (s === 'REJECTED') return 'badge-critical';
+  return 'badge-outline';
+}
+
 export const CORRIDOR_DISCIPLINES = [
   { id: 'track', name: 'Track & Permanent Way', code: 'TRK', icon: '🛤️' },
   { id: 'signal', name: 'Signalling & Telecom', code: 'SIG', icon: '🚦' },
@@ -175,3 +211,104 @@ export function getCanonicalPossessions({
     dateTotal,
   };
 }
+
+/**
+ * Extract canonical priority assessment and AI explainability enrichment
+ * from a maintenance record, block request, or scheduled allocation.
+ *
+ * @param {Object} record - Maintenance, block, or possession record
+ * @returns {Object} Extracted priority factors, priorityValue, and AI explanation
+ */
+export function extractPriorityEnrichment(record) {
+  if (!record) {
+    return {
+      priorityValue: null,
+      urgency: null,
+      criticality: null,
+      overdueFactor: null,
+      assetAvailabilityImpact: null,
+      operationalImpact: null,
+      explanation: null,
+      hasPriorityData: false,
+    };
+  }
+
+  const pe = record.priority_enrichment || {};
+  const meta = pe.metadata || {};
+
+  const priorityValue =
+    record.priority_value != null
+      ? record.priority_value
+      : pe.priority_value != null
+      ? pe.priority_value
+      : null;
+
+  const urgency =
+    pe.urgency != null
+      ? pe.urgency
+      : record.urgency != null
+      ? record.urgency
+      : null;
+
+  const criticality =
+    pe.criticality != null
+      ? pe.criticality
+      : record.criticality != null
+      ? record.criticality
+      : null;
+
+  const overdueFactor =
+    pe.overdue_factor != null
+      ? pe.overdue_factor
+      : record.overdue_factor != null
+      ? record.overdue_factor
+      : null;
+
+  const assetAvailabilityImpact =
+    pe.asset_availability_impact != null
+      ? pe.asset_availability_impact
+      : meta.asset_availability_impact != null
+      ? meta.asset_availability_impact
+      : record.asset_availability_impact != null
+      ? record.asset_availability_impact
+      : null;
+
+  const operationalImpact =
+    pe.operational_impact != null
+      ? pe.operational_impact
+      : meta.operational_impact != null
+      ? meta.operational_impact
+      : record.operational_impact != null
+      ? record.operational_impact
+      : null;
+
+  const explanation =
+    pe.explanation ||
+    pe.ai_explanation ||
+    meta.explanation ||
+    meta.ai_explanation ||
+    record.ai_explanation ||
+    record.explanation ||
+    null;
+
+  const hasPriorityData =
+    priorityValue != null ||
+    urgency != null ||
+    criticality != null ||
+    overdueFactor != null ||
+    assetAvailabilityImpact != null ||
+    operationalImpact != null ||
+    explanation != null;
+
+  return {
+    priorityValue,
+    urgency,
+    criticality,
+    overdueFactor,
+    assetAvailabilityImpact,
+    operationalImpact,
+    explanation,
+    hasPriorityData,
+  };
+}
+

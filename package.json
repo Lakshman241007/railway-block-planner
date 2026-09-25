@@ -1,0 +1,23 @@
+{
+  "name": "railway-block-planner",
+  "version": "1.0.0",
+  "description": "Railway Operational Block Planner & Possession Optimizer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server.js",
+    "build": "cd frontend && vite build",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "tsx": "^4.19.0",
+    "vite": "^6.1.0"
+  }
+}

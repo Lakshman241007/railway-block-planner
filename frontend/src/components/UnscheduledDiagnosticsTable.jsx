@@ -42,7 +42,13 @@ export default function UnscheduledDiagnosticsTable({ blocks = [], onSelectBlock
                 <tr key={u.request_id || idx}>
                   <td className="table-cell-mono">{u.request_id}</td>
                   <td>{u.location}</td>
-                  <td><PriorityBadge priority={u.priority} /></td>
+                  <td>
+                    <PriorityBadge
+                      priority={u.priority}
+                      value={u.priority_value != null ? u.priority_value : u.priority_enrichment?.priority_value}
+                      showValue={(u.priority_value != null || u.priority_enrichment?.priority_value != null)}
+                    />
+                  </td>
                   <td className="table-cell-mono">{u.duration_minutes || u.requested_duration || '--'} min</td>
                   <td style={{ color: '#fca5a5', maxWidth: 420, whiteSpace: 'normal' }}>
                     <strong>Diagnostic:</strong> {u.reason || 'Preempted by higher priority request or track possession collision.'}

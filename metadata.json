@@ -1,0 +1,8 @@
+{
+  "name": "Railway Block Planner",
+  "description": "Enterprise Corridor Possession Control Room & CP-SAT Optimization Interface",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

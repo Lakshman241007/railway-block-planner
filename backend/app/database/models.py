@@ -312,6 +312,7 @@ class OptimizedPlan(Base):
             "target_date": self.target_date.isoformat() if isinstance(self.target_date, (date, datetime)) else str(self.target_date),
             "horizon_days": self.horizon_days,
             "solver_status": self.solver_status,
+            "status": self.solver_status,
             "objective_value": self.objective_value,
             "num_scheduled": self.num_scheduled,
             "num_unscheduled": self.num_unscheduled,
@@ -320,6 +321,7 @@ class OptimizedPlan(Base):
             "conflicts_after": self.conflicts_after,
             "wall_time_seconds": self.wall_time_seconds,
             "generated_at": self.generated_at.isoformat() if self.generated_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
     def __repr__(self) -> str:
