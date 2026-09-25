@@ -694,3 +694,119 @@ def test_monthly_end_date_always_matches_calendar_last_day():
             f"got {dates[-1]} (horizon={horizon})"
         )
         assert dates[0] == start
+
+
+def test_conflict_priority_precedence_high_over_medium():
+    """Verify higher priority block takes precedence over lower priority block."""
+    b_high = BlockRecord(
+        block_id="BLK-005",
+        location="KM85-87",
+        block_type=BlockType.MAINTENANCE,
+        requested_date=date(2026, 9, 5),
+        requested_start="06:00",
+        requested_end="09:00",
+        reason="Track Renewal",
+        priority=Priority.HIGH,
+        status=BlockStatus.REQUESTED,
+    )
+    b_med = MaintenanceRecord(
+        asset_id="TRK-1102",
+        asset_type="Track",
+        location="KM85-87",
+        maintenance_type="Preventive",
+        maintenance_required=True,
+        priority=Priority.MEDIUM,
+        duration_minutes=120,
+        requested_date=date(2026, 9, 5),
+        preferred_start=time(7, 0),
+        required_resources=2,
+        equipment="Track Tamper",
+        status=MaintenanceStatus.PENDING,
+    )
+
+    detector = ConflictDetector(block_records=[b_high], maintenance_records=[b_med])
+    report = detector.detect_conflicts(target_date=date(2026, 9, 5))
+
+    assert report.total_conflicts >= 1
+    bb_conflict = next(c for c in report.conflicts if c.conflict_type == ConflictType.BLOCK_BLOCK)
+    assert bb_conflict.precedence_entity_id == "BLK-005"
+    assert "Priority Precedence" in bb_conflict.suggested_action
+    assert "Prioritize BLK-005 (High)" in bb_conflict.suggested_action
+    assert "Defer or shift TRK-1102 (Medium)" in bb_conflict.suggested_action
+
+
+def test_conflict_joint_emergency_consolidation():
+    """Verify two Critical emergency blocks on same section trigger joint consolidation."""
+    b_crit1 = BlockRecord(
+        block_id="BLK-006",
+        location="KM40-42",
+        block_type=BlockType.EMERGENCY,
+        requested_date=date(2026, 9, 5),
+        requested_start="01:00",
+        requested_end="03:00",
+        reason="Emergency OHE Repair",
+        priority=Priority.CRITICAL,
+        status=BlockStatus.REQUESTED,
+    )
+    b_crit2 = MaintenanceRecord(
+        asset_id="OHE-4001",
+        asset_type="OHE",
+        location="KM40-42",
+        maintenance_type="Emergency",
+        maintenance_required=True,
+        priority=Priority.CRITICAL,
+        duration_minutes=120,
+        requested_date=date(2026, 9, 5),
+        preferred_start=time(1, 30),
+        required_resources=2,
+        equipment="OHE Car",
+        status=MaintenanceStatus.PENDING,
+    )
+
+    detector = ConflictDetector(block_records=[b_crit1], maintenance_records=[b_crit2])
+    report = detector.detect_conflicts(target_date=date(2026, 9, 5))
+
+    assert report.total_conflicts >= 1
+    bb_conflict = next(c for c in report.conflicts if c.conflict_type == ConflictType.BLOCK_BLOCK)
+    assert bb_conflict.precedence_entity_id == "Joint Consolidation"
+    assert "Joint Critical Consolidation" in bb_conflict.suggested_action
+    assert bb_conflict.resolution_strategy == "Joint Emergency Consolidation"
+
+
+def test_conflict_priority_tie_routine():
+    """Verify routine priority tie triggers sequential staggering with shorter task first."""
+    b_med1 = BlockRecord(
+        block_id="BLK-ROUTINE-1",
+        location="Basin Bridge-Vyasarpadi",
+        block_type=BlockType.MAINTENANCE,
+        requested_date=date(2026, 9, 5),
+        requested_start="02:00",
+        requested_end="05:00",  # 180 min
+        reason="Routine Tamping",
+        priority=Priority.MEDIUM,
+        status=BlockStatus.REQUESTED,
+    )
+    b_med2 = MaintenanceRecord(
+        asset_id="TRK-ROUTINE-2",
+        asset_type="Track",
+        location="Basin Bridge-Vyasarpadi",
+        maintenance_type="Preventive",
+        maintenance_required=True,
+        priority=Priority.MEDIUM,
+        duration_minutes=60,  # 60 min (shorter)
+        requested_date=date(2026, 9, 5),
+        preferred_start=time(2, 30),
+        required_resources=1,
+        equipment="Track Tamper",
+        status=MaintenanceStatus.PENDING,
+    )
+
+    detector = ConflictDetector(block_records=[b_med1], maintenance_records=[b_med2])
+    report = detector.detect_conflicts(target_date=date(2026, 9, 5))
+
+    assert report.total_conflicts >= 1
+    bb_conflict = next(c for c in report.conflicts if c.conflict_type == ConflictType.BLOCK_BLOCK)
+    assert bb_conflict.precedence_entity_id == "TRK-ROUTINE-2"
+    assert "Priority Tie (Medium)" in bb_conflict.suggested_action
+    assert bb_conflict.resolution_strategy == "Sequential Staggering"
+

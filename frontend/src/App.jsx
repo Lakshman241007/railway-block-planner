@@ -7,8 +7,6 @@ import {
   navigateTo,
   resolveRoute,
 } from './router';
-
-// Component imports
 import Header from './components/Header';
 import OperatorSidebar from './components/operator/OperatorSidebar';
 import EmployeeSidebar from './components/employee/EmployeeSidebar';
@@ -46,6 +44,7 @@ import { getTimetable } from './services/timetable';
 import { getGoodsForecast, runGoodsForecast } from './services/forecast';
 import { detectConflicts } from './services/scheduler';
 import { optimizePlan, getLatestOptimizedPlan, resetOptimizationBaseline } from './services/plans';
+import { updateScheduledBlockList } from './utils/scheduleSync';
 
 function AppContent() {
   const { role, isOperator, isEmployee, setRole } = useAuth();
@@ -287,6 +286,11 @@ function AppContent() {
         horizon_days: customParams.horizon_days || 7,
         buffer_minutes: customParams.buffer_minutes || 15,
         include_forecast: customParams.include_forecast !== false,
+        priority_overrides: customParams.priority_overrides || null,
+        pinned_slots: customParams.pinned_slots || null,
+        mandatory_request_ids: customParams.mandatory_request_ids || null,
+        exclude_from_reopt: customParams.exclude_from_reopt || null,
+        strategy_preset: customParams.strategy_preset || 'balanced',
       });
 
       setOptimizationStep(3);
@@ -360,6 +364,40 @@ function AppContent() {
     } finally {
       setIsForecasting(false);
     }
+  };
+
+  // Synchronize manual timetable edits with DB and live optimization schedule
+  const handleBlockSave = async (savedBlock, editDraft) => {
+    await fetchAllData();
+
+    if (optimizationResult?.scheduled_blocks?.length) {
+      const { updatedBlocks, matched } = updateScheduledBlockList(
+        optimizationResult.scheduled_blocks,
+        savedBlock,
+        editDraft
+      );
+
+      if (matched) {
+        const numShifted = updatedBlocks.filter((b) => b.is_shifted).length;
+        const numPinned = updatedBlocks.filter((b) => b.is_pinned).length;
+
+        setOptimizationResult((prev) => ({
+          ...prev,
+          scheduled_blocks: updatedBlocks,
+          solver_statistics: {
+            ...(prev?.solver_statistics || {}),
+            num_shifted: numShifted,
+            num_pinned: numPinned,
+          },
+        }));
+
+        const id = savedBlock.block_id || savedBlock.request_id || savedBlock.asset_id || 'Possession';
+        addToast(`Slot synchronized: ${id} updated on 24h timeline and pinned.`, 'success');
+        return;
+      }
+    }
+
+    addToast('Timetable modification saved successfully.', 'success');
   };
 
   const getPageTitle = () => {

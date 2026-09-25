@@ -31,7 +31,16 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.dependencies import get_db, require_operator_role
 from backend.app.block_planner.planner import BlockPlanner
-from backend.app.block_planner.schemas import BlockPlanRequest, BlockPlanResult
+from backend.app.block_planner.schemas import (
+    BlockPlanRequest,
+    BlockPlanResult,
+    DailyProblemRequest,
+    DailySchedulingProblem,
+    MonthlyPlan,
+    MonthlyPlanRequest,
+    WeeklyPlan,
+    WeeklyPlanRequest,
+)
 from backend.app.database.repositories import (
     BlockRepository,
     MaintenanceRepository,
@@ -40,6 +49,7 @@ from backend.app.database.repositories import (
 from backend.app.database.seed import seed_database
 from backend.app.optimizer.schemas import OptimizationRequest, OptimizationResult
 from backend.app.optimizer.validator import validate_final_plan
+from backend.app.services.scheduling_service import SchedulingService
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +193,66 @@ def get_optimized_plan_by_id(
         "plan_meta": plan.to_dict(),
         "result": result_data,
     }
+
+
+# ---------------------------------------------------------------------------
+# POST /api/plans/monthly — 30-day tactical monthly plan
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/monthly",
+    summary="Generate 30-day tactical monthly plan",
+    response_model=MonthlyPlan,
+)
+def generate_monthly_plan(
+    request: Optional[MonthlyPlanRequest] = None,
+    db: Session = Depends(get_db),
+) -> MonthlyPlan:
+    """
+    Generate 30-day tactical maintenance plan partitioning requirements across week buckets (1 to 5).
+    """
+    req = request or MonthlyPlanRequest()
+    return SchedulingService.generate_monthly_plan(request=req, db=db)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/plans/weekly — 7-day tactical weekly plan
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/weekly",
+    summary="Generate 7-day tactical weekly plan",
+    response_model=WeeklyPlan,
+)
+def generate_weekly_plan(
+    request: Optional[WeeklyPlanRequest] = None,
+    db: Session = Depends(get_db),
+) -> WeeklyPlan:
+    """
+    Generate 7-day weekly plan organizing work by specific target service date.
+    """
+    req = request or WeeklyPlanRequest()
+    return SchedulingService.generate_weekly_plan(request=req, db=db)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/plans/daily-problem — Prepare canonical DailySchedulingProblem
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/daily-problem",
+    summary="Prepare canonical DailySchedulingProblem from operational data",
+    response_model=DailySchedulingProblem,
+)
+def prepare_daily_problem(
+    request: Optional[DailyProblemRequest] = None,
+    db: Session = Depends(get_db),
+) -> DailySchedulingProblem:
+    """
+    Prepare canonical DailySchedulingProblem contract from operational data for downstream scheduling.
+    """
+    req = request or DailyProblemRequest()
+    return SchedulingService.prepare_daily_problem(request=req, db=db)
 
 
 # ---------------------------------------------------------------------------

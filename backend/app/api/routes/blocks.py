@@ -193,6 +193,34 @@ def get_block_by_id(
     }
 
 
+def _validate_block_patch_values(update_values: Dict[str, Any]) -> None:
+    """Validate priority and status enum values before persisting to database."""
+    if "priority" in update_values:
+        allowed_priorities = [p.value for p in Priority]
+        if update_values["priority"] not in allowed_priorities:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Invalid priority '{update_values['priority']}'. "
+                    f"Allowed values: {allowed_priorities}"
+                ),
+            )
+
+    if "status" in update_values:
+        # Map 'Scheduled' (assigned by optimizer views) to 'Approved' for persistent storage
+        if update_values["status"] == "Scheduled":
+            update_values["status"] = BlockStatus.APPROVED.value
+        allowed_statuses = [s.value for s in BlockStatus]
+        if update_values["status"] not in allowed_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Invalid status '{update_values['status']}'. "
+                    f"Allowed values: {allowed_statuses}"
+                ),
+            )
+
+
 # ---------------------------------------------------------------------------
 # POST /api/blocks — Submit new block request
 # ---------------------------------------------------------------------------
@@ -297,8 +325,7 @@ def update_block(
     Partially update a block / disconnection record by its block_id.
 
     Only the fields included in the request body are written to the database;
-    omitted fields remain unchanged.  The endpoint validates ``priority`` and
-    ``status`` against their respective enumerations before persisting.
+    omitted fields remain unchanged. The endpoint validates fields before persisting.
     """
     repo = BlockRepository(db)
 
@@ -320,31 +347,8 @@ def update_block(
     }
 
     if not update_values:
-        # Nothing to update — return the record as-is.
         return {"data": existing.to_dict()}
 
-    # Validate enum fields so the DB never stores an invalid value.
-    if "priority" in update_values:
-        allowed_priorities = [p.value for p in Priority]
-        if update_values["priority"] not in allowed_priorities:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    f"Invalid priority '{update_values['priority']}'. "
-                    f"Allowed values: {allowed_priorities}"
-                ),
-            )
-
-    if "status" in update_values:
-        allowed_statuses = [s.value for s in BlockStatus]
-        if update_values["status"] not in allowed_statuses:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    f"Invalid status '{update_values['status']}'. "
-                    f"Allowed values: {allowed_statuses}"
-                ),
-            )
-
+    _validate_block_patch_values(update_values)
     updated = repo.update(block_id, update_values)
     return {"data": updated.to_dict()}

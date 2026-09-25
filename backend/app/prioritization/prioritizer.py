@@ -1,196 +1,159 @@
 """
-Deterministic maintenance prioritization engine.
+Deterministic maintenance prioritization engine and adapter (Phase 5 & AI Prioritization Contract).
 
-The engine converts unified MaintenanceRecord data into five
-normalized priority factors and calculates a weighted priority score.
-
-No LLM is used to make the final priority decision.
+Includes:
+- MaintenancePrioritizer: Generates the 5 normalized factors and deterministic weighted scores.
+- AIPrioritizer: Adapter class for CP-SAT pipeline integration and batch record enrichment.
 """
 
 from __future__ import annotations
 
 from datetime import date
+import logging
+from typing import Any, Callable, Dict, List, Optional, Union
 
-from backend.app.schemas.unified_data import MaintenanceRecord, Priority
-
+from backend.app.schemas.unified_data import MaintenanceRecord, Priority, PriorityEnrichment
+from .factors import (
+    compute_asset_availability_impact,
+    compute_confidence,
+    compute_criticality,
+    compute_operational_impact,
+    compute_overdue_factor,
+    compute_urgency,
+    generate_explanation,
+)
 from .schemas import (
+    MaintenancePriority,
     PriorityFactors,
     PriorityInformation,
     PriorityWeights,
 )
+from .scorer import PriorityScorer
+from .service import PrioritizationService
+
+logger = logging.getLogger(__name__)
 
 
 class MaintenancePrioritizer:
     """Generate explainable and deterministic maintenance priorities."""
 
-    def __init__(self, weights: PriorityWeights | None = None) -> None:
+    def __init__(self, weights: Optional[PriorityWeights] = None) -> None:
         self.weights = weights or PriorityWeights()
+        self.service = PrioritizationService(weights=self.weights)
 
     def calculate_factors(
         self,
         maintenance: MaintenanceRecord,
-        reference_date: date | None = None,
+        reference_date: Optional[date] = None,
     ) -> PriorityFactors:
         """Calculate the five normalized prioritization factors."""
-
-        reference_date = reference_date or date.today()
-
-        return PriorityFactors(
-            urgency=self._urgency(maintenance),
-            criticality=self._criticality(maintenance),
-            overdue_factor=self._overdue_factor(
-                maintenance,
-                reference_date,
-            ),
-            asset_availability_impact=self._asset_availability_impact(
-                maintenance
-            ),
-            operational_impact=self._operational_impact(maintenance),
-        )
+        return self.service.calculate_factors(maintenance, reference_date=reference_date)
 
     def calculate_score(self, factors: PriorityFactors) -> float:
         """Calculate the deterministic weighted priority score."""
-
-        score = (
-            self.weights.urgency * factors.urgency
-            + self.weights.criticality * factors.criticality
-            + self.weights.overdue_factor * factors.overdue_factor
-            + self.weights.asset_availability_impact
-            * factors.asset_availability_impact
-            + self.weights.operational_impact
-            * factors.operational_impact
-        )
-
-        return round(score, 2)
+        return self.service.scorer.calculate_score(factors, weights=self.weights)
 
     def prioritize(
         self,
         maintenance: MaintenanceRecord,
-        reference_date: date | None = None,
-        maintenance_id: str | None = None
+        reference_date: Optional[date] = None,
+        maintenance_id: Optional[str] = None,
     ) -> PriorityInformation:
         """Generate complete priority information for one maintenance record."""
-
-        factors = self.calculate_factors(
+        return self.service.prioritize(
             maintenance,
             reference_date=reference_date,
+            maintenance_id=maintenance_id,
         )
 
-        score = self.calculate_score(factors)
-
-        explanation = (
-            f"Priority score {score:.2f}/100 based on "
-            f"urgency {factors.urgency:.1f}, "
-            f"criticality {factors.criticality:.1f}, "
-            f"overdue factor {factors.overdue_factor:.1f}, "
-            f"asset availability impact "
-            f"{factors.asset_availability_impact:.1f}, "
-            f"and operational impact {factors.operational_impact:.1f}."
-        )
-
-        return PriorityInformation(
-            maintenance_id=maintenance_id or maintenance.asset_id,
-            factors=factors,
-            priority_value=score,
-            explanation=explanation,
-            confidence=self._confidence(maintenance),
-        )
-
+    # Static helpers for direct individual factor access
     @staticmethod
     def _urgency(maintenance: MaintenanceRecord) -> float:
-        """Convert maintenance status into an urgency score."""
-
-        mapping = {
-            "Pending": 70.0,
-            "Approved": 85.0,
-            "Completed": 0.0,
-            "Cancelled": 0.0,
-        }
-
-        if not maintenance.maintenance_required:
-            return 0.0
-
-        return mapping.get(maintenance.status.value, 50.0)
+        return compute_urgency(maintenance)
 
     @staticmethod
     def _criticality(maintenance: MaintenanceRecord) -> float:
-        """Convert source maintenance priority into a normalized score."""
-
-        mapping = {
-            Priority.LOW: 25.0,
-            Priority.MEDIUM: 50.0,
-            Priority.HIGH: 75.0,
-            Priority.CRITICAL: 100.0,
-        }
-
-        return mapping[maintenance.priority]
+        return compute_criticality(maintenance)
 
     @staticmethod
-    def _overdue_factor(
-        maintenance: MaintenanceRecord,
-        reference_date: date,
-    ) -> float:
-        """Increase the score as the requested maintenance date becomes overdue."""
-
-        days_overdue = (
-            reference_date - maintenance.requested_date
-        ).days
-
-        if days_overdue <= 0:
-            return 0.0
-
-        # Saturates at 100 after 30 overdue days.
-        return min(100.0, (days_overdue / 30.0) * 100.0)
+    def _overdue_factor(maintenance: MaintenanceRecord, reference_date: date) -> float:
+        return compute_overdue_factor(maintenance, reference_date=reference_date)
 
     @staticmethod
-    def _asset_availability_impact(
-        maintenance: MaintenanceRecord,
-    ) -> float:
-        """Estimate asset availability impact from maintenance duration."""
-
-        # 8 hours or more is treated as maximum impact.
-        return min(100.0, (maintenance.duration_minutes / 480.0) * 100.0)
+    def _asset_availability_impact(maintenance: MaintenanceRecord) -> float:
+        return compute_asset_availability_impact(maintenance)
 
     @staticmethod
-    def _operational_impact(
-        maintenance: MaintenanceRecord,
-    ) -> float:
-        """Estimate operational impact from resources and maintenance state."""
-
-        resource_score = min(
-            100.0,
-            (maintenance.required_resources / 10.0) * 100.0,
-        )
-
-        required_score = 100.0 if maintenance.maintenance_required else 0.0
-
-        return round(
-            (resource_score * 0.4) + (required_score * 0.6),
-            2,
-        )
+    def _operational_impact(maintenance: MaintenanceRecord) -> float:
+        return compute_operational_impact(maintenance)
 
     @staticmethod
-    def _confidence(
-        maintenance: MaintenanceRecord,
-    ) -> float:
-        """Calculate confidence from completeness of available inputs."""
+    def _confidence(maintenance: MaintenanceRecord) -> float:
+        return compute_confidence(maintenance)
 
-        available_fields = [
-            maintenance.asset_id,
-            maintenance.asset_type,
-            maintenance.location,
-            maintenance.maintenance_type,
-            maintenance.equipment,
-            maintenance.requested_date,
-            maintenance.duration_minutes,
-            maintenance.required_resources,
-            maintenance.priority,
-            maintenance.status,
-        ]
 
-        completeness = sum(
-            value is not None and value != ""
-            for value in available_fields
-        ) / len(available_fields)
+class AIPrioritizer:
+    """
+    Contract interface and adapter for AI Prioritization in the Railway Block Planner pipeline (Phase 5).
 
-        return round(completeness, 2)
+    Connects external rules-based or ML/AI scoring implementations with MaintenanceRecord models.
+    The scorer's responsibility is to derive priority_value and attach PriorityEnrichment
+    for explainability and downstream CP-SAT consumption.
+    """
+
+    def __init__(
+        self,
+        scorer: Optional[Callable[[MaintenanceRecord], Optional[PriorityEnrichment]]] = None,
+    ) -> None:
+        self.scorer = scorer
+
+    def enrich_record(
+        self,
+        record: MaintenanceRecord,
+        enrichment: Optional[PriorityEnrichment] = None,
+    ) -> MaintenanceRecord:
+        """
+        Attach an AI prioritization enrichment payload to a MaintenanceRecord.
+        """
+        if enrichment is not None:
+            record.priority_enrichment = enrichment
+            record.priority_value = enrichment.priority_value
+            return record
+
+        if self.scorer is not None:
+            try:
+                predicted = self.scorer(record)
+                if predicted is not None:
+                    record.priority_enrichment = predicted
+                    record.priority_value = predicted.priority_value
+                    return record
+            except Exception as e:
+                logger.warning(
+                    f"AI Prioritizer scoring failed for asset {record.asset_id}: {e}. "
+                    "Gracefully falling back to legacy priority."
+                )
+
+        if record.priority_enrichment is not None:
+            record.priority_value = record.priority_enrichment.priority_value
+
+        return record
+
+    def enrich_records(
+        self,
+        records: List[MaintenanceRecord],
+        enrichments: Optional[Dict[str, PriorityEnrichment]] = None,
+    ) -> List[MaintenanceRecord]:
+        """
+        Batch enrich a collection of maintenance records.
+        """
+        enrichments_map = enrichments or {}
+        for r in records:
+            enr = enrichments_map.get(r.asset_id)
+            self.enrich_record(r, enrichment=enr)
+        return records
+
+
+__all__ = [
+    "MaintenancePrioritizer",
+    "AIPrioritizer",
+]

@@ -959,3 +959,146 @@ class TestOvernightHandling:
         assert scheduled.start_time == "22:00"
         assert scheduled.end_time == "02:00"
 
+
+class TestFeature3ReOptimization:
+    """Test suite covering Feature 3: Urgency overrides, slot pinning, exclusions, and presets."""
+
+    def test_priority_override_elevates_selection(self, base_date: date):
+        """When a lower priority task is overridden to Critical, it wins contention."""
+        req_med = MaintenanceRecord(
+            asset_id="TRK-MED-01",
+            asset_type="Track",
+            location="Chennai-Arakkonam",
+            maintenance_type="Preventive",
+            maintenance_required=True,
+            priority=Priority.MEDIUM,
+            duration_minutes=120,
+            requested_date=base_date,
+            preferred_start=time(2, 0),
+            required_resources=1,
+            equipment="Track Tamper",
+            status=MaintenanceStatus.APPROVED,
+        )
+        req_high = MaintenanceRecord(
+            asset_id="TRK-HIGH-01",
+            asset_type="Track",
+            location="Chennai-Arakkonam",
+            maintenance_type="Corrective",
+            maintenance_required=True,
+            priority=Priority.HIGH,
+            duration_minutes=120,
+            requested_date=base_date,
+            preferred_start=time(2, 0),
+            required_resources=1,
+            equipment="Track Tamper",
+            status=MaintenanceStatus.APPROVED,
+        )
+
+        opt_over = CP_SAT_Optimizer(maintenance_records=[req_med, req_high])
+        res_over = opt_over.optimize(
+            OptimizationRequest(
+                target_date=base_date,
+                horizon_days=1,
+                priority_overrides={"TRK-MED-01": "Critical"},
+            )
+        )
+
+        sched_over_ids = [b.request_id for b in res_over.scheduled_blocks]
+        assert "TRK-MED-01" in sched_over_ids
+        elevated_block = next(b for b in res_over.scheduled_blocks if b.request_id == "TRK-MED-01")
+        assert elevated_block.priority == Priority.CRITICAL
+
+    def test_exclude_from_reopt_routes_to_unscheduled(self, base_date: date):
+        """Excluded tasks are filtered from solver and marked with causal diagnostic."""
+        req = MaintenanceRecord(
+            asset_id="TRK-EXCLUDE-1",
+            asset_type="Track",
+            location="Chennai-Arakkonam",
+            maintenance_type="Preventive",
+            maintenance_required=True,
+            priority=Priority.HIGH,
+            duration_minutes=60,
+            requested_date=base_date,
+            preferred_start=time(3, 0),
+            required_resources=1,
+            equipment="Track Tamper",
+            status=MaintenanceStatus.APPROVED,
+        )
+        optimizer = CP_SAT_Optimizer(maintenance_records=[req])
+        result = optimizer.optimize(
+            OptimizationRequest(
+                target_date=base_date,
+                horizon_days=1,
+                exclude_from_reopt=["TRK-EXCLUDE-1"],
+            )
+        )
+
+        assert len(result.scheduled_blocks) == 0
+        assert len(result.unscheduled_blocks) == 1
+        unsched = result.unscheduled_blocks[0]
+        assert unsched.request_id == "TRK-EXCLUDE-1"
+        assert "operator preference" in unsched.reason.lower()
+
+    def test_slot_pinning_guarantees_fixed_window(self, base_date: date):
+        """Pinned tasks are locked to exact specified window with zero churn."""
+        req = MaintenanceRecord(
+            asset_id="TRK-PIN-1",
+            asset_type="Track",
+            location="Chennai-Arakkonam",
+            maintenance_type="Preventive",
+            maintenance_required=True,
+            priority=Priority.MEDIUM,
+            duration_minutes=120,
+            requested_date=base_date,
+            preferred_start=time(2, 0),
+            required_resources=1,
+            equipment="Track Tamper",
+            status=MaintenanceStatus.APPROVED,
+        )
+        optimizer = CP_SAT_Optimizer(maintenance_records=[req])
+        result = optimizer.optimize(
+            OptimizationRequest(
+                target_date=base_date,
+                horizon_days=1,
+                pinned_slots={"TRK-PIN-1": "04:00-06:00"},
+            )
+        )
+
+        assert len(result.scheduled_blocks) == 1
+        block = result.scheduled_blocks[0]
+        assert block.start_time == "04:00"
+        assert block.end_time == "06:00"
+        assert block.is_pinned is True
+        assert result.solver_statistics.num_pinned == 1
+        assert result.solver_statistics.stability_score == 1.0
+
+    def test_strategy_presets_and_telemetry(self, base_date: date):
+        """Strategy presets execute cleanly and report re-optimization stability telemetry."""
+        req = MaintenanceRecord(
+            asset_id="TRK-PRESET-1",
+            asset_type="Track",
+            location="Chennai-Arakkonam",
+            maintenance_type="Preventive",
+            maintenance_required=True,
+            priority=Priority.HIGH,
+            duration_minutes=60,
+            requested_date=base_date,
+            preferred_start=time(2, 0),
+            required_resources=1,
+            equipment="Track Tamper",
+            status=MaintenanceStatus.APPROVED,
+        )
+        optimizer = CP_SAT_Optimizer(maintenance_records=[req])
+        result = optimizer.optimize(
+            OptimizationRequest(
+                target_date=base_date,
+                horizon_days=1,
+                strategy_preset="safety_priority",
+            )
+        )
+
+        assert result.status in (OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE)
+        assert result.solver_statistics.stability_score is not None
+        assert result.solver_statistics.num_shifted == 0
+
+

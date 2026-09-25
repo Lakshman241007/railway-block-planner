@@ -12,11 +12,12 @@ import logging
 from datetime import date
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.app.api.dependencies import get_db, require_operator_role
+from backend.app.block_planner.schemas import DailySchedulingProblem
 from backend.app.database.repositories import (
     BlockRepository,
     MaintenanceRepository,
@@ -30,10 +31,12 @@ from backend.app.scheduler.conflict_detector import ConflictDetector
 from backend.app.scheduler.scheduler import MaintenanceScheduler
 from backend.app.scheduler.schemas import (
     ConflictReport,
+    DailyScheduleResult,
     FeasibleSlot,
     ScheduleRequest,
     ScheduleResult,
 )
+from backend.app.services.scheduling_service import SchedulingService
 
 logger = logging.getLogger(__name__)
 
@@ -175,3 +178,27 @@ def generate_schedule(
         location_filter=request.location_filter,
         schedule_type=request.schedule_type,
     )
+
+
+@router.post(
+    "/daily",
+    summary="Run canonical daily maintenance scheduling and CP-SAT optimization",
+    response_model=DailyScheduleResult,
+)
+def schedule_daily(
+    problem: DailySchedulingProblem,
+    db: Session = Depends(get_db),
+) -> DailyScheduleResult:
+    """
+    Execute canonical Phase 3–6 daily maintenance scheduling:
+    1. Evaluates corridor availability windows against timetables and movements.
+    2. Matches candidate maintenance work items to available windows.
+    3. Solves multi-objective CP-SAT mathematical optimization (single priority signal, non-overlapping).
+    4. Returns DailyScheduleResult containing assigned windows, unscheduled diagnostics,
+       and CP-SAT solver telemetry.
+    """
+    try:
+        return SchedulingService.schedule_daily(problem=problem, db=db)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+

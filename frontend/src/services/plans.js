@@ -1,8 +1,12 @@
-import { apiFetch } from './api';
-
 /**
- * Plans and CP-SAT Optimization API Service (Phase 5)
+ * @file plans.js
+ * @description API service methods for Block Plans and CP-SAT Mathematical Optimization.
+ * Includes Feature 3 re-optimization parameters: priority overrides, slot pinning, exclusions, and presets.
+ * @module services/plans
  */
+
+
+import { apiFetch } from './api';
 
 export async function getPlans(status = null, skip = 0, limit = 100) {
   const params = new URLSearchParams();
@@ -24,6 +28,11 @@ export async function optimizePlan(payload = {}) {
       buffer_minutes: payload.buffer_minutes || 15,
       time_limit_seconds: payload.time_limit_seconds || 15.0,
       num_workers: payload.num_workers || 4,
+      priority_overrides: payload.priority_overrides || null,
+      pinned_slots: payload.pinned_slots || null,
+      mandatory_request_ids: payload.mandatory_request_ids || null,
+      exclude_from_reopt: payload.exclude_from_reopt || null,
+      strategy_preset: payload.strategy_preset || 'balanced',
     }),
   });
 }
