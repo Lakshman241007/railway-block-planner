@@ -16,8 +16,12 @@ export default function Optimization({
   optimizationResult,
   optimizationStep,
   onSelectBlock,
+  onApprovePlan,
+  onPublishPlan,
+  onRejectPlan,
   blocks = [],
   maintenance = [],
+  error = null,
 }) {
   return (
     <PageContainer>
@@ -29,8 +33,12 @@ export default function Optimization({
         optimizationResult={optimizationResult}
         optimizationStep={optimizationStep}
         onSelectBlock={onSelectBlock}
+        onApprovePlan={onApprovePlan}
+        onPublishPlan={onPublishPlan}
+        onRejectPlan={onRejectPlan}
         blocks={blocks}
         maintenance={maintenance}
+        error={error}
       />
     </PageContainer>
   );

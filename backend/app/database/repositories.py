@@ -523,16 +523,40 @@ class OptimizedPlanRepository:
             Must contain: plan_id, target_date, horizon_days, solver_status,
             result_json (JSON string), and optional numeric metrics.
         """
-        if isinstance(plan_data.get("target_date"), str):
-            plan_data["target_date"] = date.fromisoformat(plan_data["target_date"])
-        if "created_at" not in plan_data:
+        data = dict(plan_data)
+        if isinstance(data.get("target_date"), str):
+            data["target_date"] = date.fromisoformat(data["target_date"])
+        if "created_at" not in data:
             from datetime import datetime
-            plan_data["created_at"] = datetime.now()
-        record = OptimizedPlan(**plan_data)
+            data["created_at"] = datetime.now()
+        record = OptimizedPlan(**data)
         self.db.add(record)
         self.db.commit()
         self.db.refresh(record)
         return record
+
+    def update(self, plan_id: str, values: Dict[str, Any]) -> Optional[OptimizedPlan]:
+        """Update an existing optimized plan record by plan_id."""
+        record = self.get_by_id(plan_id)
+        if not record:
+            return None
+        data = dict(values)
+        if isinstance(data.get("target_date"), str):
+            data["target_date"] = date.fromisoformat(data["target_date"])
+        for key, val in data.items():
+            if hasattr(record, key):
+                setattr(record, key, val)
+        self.db.commit()
+        self.db.refresh(record)
+        return record
+
+    def save_or_update(self, plan_data: Dict[str, Any]) -> OptimizedPlan:
+        """Create or update an optimized plan record to protect against duplicate collisions."""
+        pid = plan_data.get("plan_id")
+        existing = self.get_by_id(pid) if pid else None
+        if existing:
+            return self.update(pid, plan_data)
+        return self.create(plan_data)
 
     def get_by_id(self, plan_id: str) -> Optional[OptimizedPlan]:
         """Fetch a single optimized plan by its unique plan_id."""

@@ -7,21 +7,19 @@ conflicts, and generating conflict-free maintenance schedules.
 
 from __future__ import annotations
 
-import json
-import logging
 from datetime import date
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from backend.app.api.dependencies import get_db, require_operator_role
+from backend.app.api.dependencies import get_db
+from backend.app.block_planner.schemas import DailySchedulingProblem
 from backend.app.database.repositories import (
     BlockRepository,
     MaintenanceRepository,
     MovementRepository,
-    OptimizedPlanRepository,
     TimetableRepository,
     TrainRepository,
 )
@@ -30,12 +28,12 @@ from backend.app.scheduler.conflict_detector import ConflictDetector
 from backend.app.scheduler.scheduler import MaintenanceScheduler
 from backend.app.scheduler.schemas import (
     ConflictReport,
+    DailyScheduleResult,
     FeasibleSlot,
     ScheduleRequest,
     ScheduleResult,
 )
-
-logger = logging.getLogger(__name__)
+from backend.app.services.scheduling_service import SchedulingService
 
 router = APIRouter(prefix="/scheduler", tags=["Maintenance Scheduler & Conflict Detection"])
 
@@ -98,7 +96,6 @@ def find_feasible_slots(
 def detect_conflicts(
     target_date: Optional[date] = Query(None, description="Target service date (default: today)"),
     buffer_minutes: int = Query(15, ge=0, le=60, description="Safety headway buffer in minutes"),
-    use_optimized: bool = Query(True, description="Evaluate against latest optimized schedule if available"),
     db: Session = Depends(get_db),
 ) -> ConflictReport:
     """
@@ -115,17 +112,6 @@ def detect_conflicts(
     forecaster = GoodsTrainForecaster(trains=trains, movements=movements, timetables=timetables)
     fc_result = forecaster.predict(target_date=target_d)
 
-    proposed_schedule = None
-    if use_optimized:
-        try:
-            plan_repo = OptimizedPlanRepository(db)
-            latest_plan = plan_repo.get_latest(target_d)
-            if latest_plan and latest_plan.result_json:
-                plan_data = json.loads(latest_plan.result_json)
-                proposed_schedule = plan_data.get("scheduled_blocks", [])
-        except Exception as exc:
-            logger.warning("Could not load latest optimized plan for conflict evaluation: %s", exc)
-
     detector = ConflictDetector(
         trains=trains,
         timetables=timetables,
@@ -135,7 +121,7 @@ def detect_conflicts(
         block_records=blocks,
         buffer_minutes=buffer_minutes,
     )
-    return detector.detect_conflicts(target_date=target_d, proposed_schedule=proposed_schedule)
+    return detector.detect_conflicts(target_date=target_d)
 
 
 @router.post(
@@ -146,7 +132,6 @@ def detect_conflicts(
 def generate_schedule(
     request: ScheduleRequest,
     db: Session = Depends(get_db),
-    _role: str = Depends(require_operator_role),
 ) -> ScheduleResult:
     """
     Generate heuristic feasible schedule assignments for all active maintenance and block requests.
@@ -173,5 +158,29 @@ def generate_schedule(
         target_date=target_d,
         priority_filter=request.priority_filter,
         location_filter=request.location_filter,
-        schedule_type=request.schedule_type,
+        schedule_type=getattr(request, "schedule_type", "daily"),
     )
+
+
+@router.post(
+    "/daily",
+    summary="Run canonical daily maintenance scheduling and CP-SAT optimization",
+    response_model=DailyScheduleResult,
+)
+def schedule_daily(
+    problem: DailySchedulingProblem,
+    db: Session = Depends(get_db),
+) -> DailyScheduleResult:
+    """
+    Execute canonical Phase 3–6 daily maintenance scheduling:
+    1. Evaluates corridor availability windows against timetables and movements.
+    2. Matches candidate maintenance work items to available windows.
+    3. Solves multi-objective CP-SAT mathematical optimization (single priority signal, non-overlapping).
+    4. Returns DailyScheduleResult containing assigned windows, unscheduled diagnostics,
+       and CP-SAT solver telemetry.
+    """
+    try:
+        return SchedulingService.schedule_daily(problem=problem, db=db)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+

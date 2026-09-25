@@ -5,7 +5,7 @@
 
 import { getActiveRole } from '../auth/AuthContext';
 
-const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '' : 'http://127.0.0.1:8000');
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export async function apiFetch(endpoint, options = {}) {
   const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;

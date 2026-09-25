@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from backend.app.schemas.unified_data import Priority
+from backend.app.schemas.unified_data import Priority, PriorityEnrichment
 
 
 class OptimizationStatus(str, Enum):
@@ -33,6 +33,16 @@ class OptimizationStatus(str, Enum):
 class ObjectiveWeights(BaseModel):
     """
     Configurable weights for the multi-objective optimization function.
+
+    Priority signal model (single-priority XOR rule):
+        Primary path  — weight_priority_value × priority_value
+            Applied when priority_value is not None.  This is the sole priority
+            utility term; categorical label weights are excluded.
+        Legacy fallback — weight_priority_critical / high / medium / low
+            Applied ONLY when priority_value is None.  Preserves backward
+            compatibility for records that have not been scored by the
+            AI prioritization layer.  Never active simultaneously with
+            the primary numerical path.
     """
 
     weight_scheduled: int = Field(
@@ -43,22 +53,44 @@ class ObjectiveWeights(BaseModel):
     weight_priority_critical: int = Field(
         default=5000,
         ge=0,
-        description="Bonus weight for scheduling Critical priority maintenance",
+        description=(
+            "[Legacy fallback] Bonus applied when priority_value is None and "
+            "categorical priority is Critical. Never combined with weight_priority_value."
+        ),
     )
     weight_priority_high: int = Field(
         default=2500,
         ge=0,
-        description="Bonus weight for scheduling High priority maintenance",
+        description=(
+            "[Legacy fallback] Bonus applied when priority_value is None and "
+            "categorical priority is High. Never combined with weight_priority_value."
+        ),
     )
     weight_priority_medium: int = Field(
         default=1000,
         ge=0,
-        description="Bonus weight for scheduling Medium priority maintenance",
+        description=(
+            "[Legacy fallback] Bonus applied when priority_value is None and "
+            "categorical priority is Medium. Never combined with weight_priority_value."
+        ),
     )
     weight_priority_low: int = Field(
         default=200,
         ge=0,
-        description="Bonus weight for scheduling Low priority maintenance",
+        description=(
+            "[Legacy fallback] Bonus applied when priority_value is None and "
+            "categorical priority is Low. Never combined with weight_priority_value."
+        ),
+    )
+    weight_priority_value: int = Field(
+        default=50,
+        ge=0,
+        description=(
+            "[Primary] Multiplier for the single numerical priority signal. "
+            "Objective contribution = weight_priority_value × priority_value. "
+            "Applied only when priority_value is not None; categorical weights "
+            "are excluded when this path is active."
+        ),
     )
     weight_preferred_deviation: int = Field(
         default=5,
@@ -74,6 +106,16 @@ class ObjectiveWeights(BaseModel):
         default=100,
         ge=0,
         description="Penalty multiplier for equipment contention pressure",
+    )
+    weight_block_utilization: int = Field(
+        default=0,
+        ge=0,
+        description="Optional bonus multiplier per minute of block duration utilized",
+    )
+    weight_operational_efficiency: int = Field(
+        default=0,
+        ge=0,
+        description="Optional bonus multiplier for high slot fit / minimal operational disruption",
     )
 
     model_config = {"str_strip_whitespace": True}
@@ -139,7 +181,43 @@ class OptimizationRequest(BaseModel):
         description="Maximum candidate slots generated per maintenance request",
     )
 
-    model_config = {"str_strip_whitespace": True}
+    # --- Feature 3: Urgency Overrides & Re-Optimization Preferences ---
+    priority_overrides: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Per-task priority overrides for this run: { 'TRK-M-001': 'Critical' } or numerical AI priority values",
+    )
+    pinned_slots: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Locked slot times for re-optimization: { 'TRK-M-001': '02:00-04:00' }",
+    )
+    mandatory_request_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Task IDs that MUST be scheduled (hard constraint: sum(x) == 1)",
+    )
+    exclude_from_reopt: Optional[List[str]] = Field(
+        default=None,
+        description="Task IDs to exclude/freeze from this re-optimization run",
+    )
+    strategy_preset: Optional[str] = Field(
+        default="balanced",
+        description="Solver trade-off preset: 'balanced' | 'max_throughput' | 'minimal_disruption' | 'safety_priority'",
+    )
+
+    # --- Daily Scheduler Integration (Phase 4) ---
+    candidate_works: Optional[List[Any]] = Field(
+        default=None,
+        description="Candidate maintenance work items from DailySchedulingProblem",
+    )
+    candidate_matches: Optional[List[Any]] = Field(
+        default=None,
+        description="Candidate work-to-window pairings from WorkMatchReport",
+    )
+    available_windows: Optional[List[Any]] = Field(
+        default=None,
+        description="Audited corridor availability windows from DailyAvailabilityReport",
+    )
+
+    model_config = {"str_strip_whitespace": True, "extra": "allow"}
 
 
 class OptimizedBlock(BaseModel):
@@ -161,15 +239,20 @@ class OptimizedBlock(BaseModel):
     required_resources: int = Field(default=1, ge=1, description="Resource/manpower units allocated")
     status: str = Field(default="Scheduled", description="Scheduling status")
     assigned_slot_id: str = Field(..., description="Assigned candidate slot identifier")
+    window_id: Optional[str] = Field(default=None, description="Corridor availability window ID if matched from daily windows")
     fit_score: float = Field(default=1.0, ge=0.0, le=1.0, description="Fit score of assigned slot")
     is_preferred_match: bool = Field(default=True, description="True if scheduled at preferred time")
     deviation_minutes: int = Field(default=0, ge=0, description="Minutes deviated from requested start")
-    discipline: Optional[str] = Field(default=None, description="Discipline identifier (track, signal, bridge, ohe, points, level_crossing)")
-    block_type: Optional[str] = Field(default=None, description="Operational block type (Maintenance, Emergency, etc.)")
-    corridor: Optional[str] = Field(default=None, description="Corridor section name")
-    reason: Optional[str] = Field(default=None, description="Operational work order reason")
+    is_pinned: bool = Field(default=False, description="True if block was pinned by operator preference")
+    is_shifted: bool = Field(default=False, description="True if block shifted from requested or prior slot")
+    priority_value: Optional[float] = Field(default=None, description="Authoritative AI priority score")
+    priority_enrichment: Optional[PriorityEnrichment] = Field(default=None, description="AI prioritization explainability metrics")
+    priority_contribution: Optional[int] = Field(
+        default=None,
+        description="Objective score contribution awarded from numerical priority",
+    )
 
-    model_config = {"str_strip_whitespace": True}
+    model_config = {"str_strip_whitespace": True, "extra": "allow"}
 
 
 class UnscheduledBlock(BaseModel):
@@ -188,9 +271,16 @@ class UnscheduledBlock(BaseModel):
     priority: Priority = Field(..., description="Priority level")
     equipment: Optional[str] = Field(default=None, description="Requested specialized equipment")
     required_resources: int = Field(default=1, ge=1, description="Requested resource units")
-    reason: str = Field(..., description="Explanation of why request could not be scheduled")
+    reason: str = Field(..., description="Detailed diagnostic explanation for why this could not be scheduled")
+    resource_contention: Optional[str] = Field(
+        default=None, description="Specific resource, track, or crew constraint causing the blockage"
+    )
+    priority_value: Optional[float] = Field(default=None, description="Authoritative AI priority score")
+    priority_enrichment: Optional[PriorityEnrichment] = Field(default=None, description="AI prioritization explainability metrics")
+    status: str = Field(default="Unscheduled", description="Scheduling status (always Unscheduled)")
+    diagnostic_message: Optional[str] = Field(default=None, description="Detailed diagnostic or error message")
 
-    model_config = {"str_strip_whitespace": True}
+    model_config = {"str_strip_whitespace": True, "extra": "allow"}
 
 
 class SolverStatistics(BaseModel):
@@ -210,6 +300,9 @@ class SolverStatistics(BaseModel):
     num_variables: int = Field(default=0, ge=0, description="Total CP-SAT decision variables created")
     num_constraints: int = Field(default=0, ge=0, description="Total hard constraints enforced")
     num_branches: Optional[int] = Field(default=0, ge=0, description="Search branches explored by CP-SAT")
+    num_pinned: int = Field(default=0, ge=0, description="Number of pinned possessions retained")
+    num_shifted: int = Field(default=0, ge=0, description="Possessions whose times shifted during re-optimization")
+    stability_score: Optional[float] = Field(default=None, description="Percentage of schedule unchanged (0.0 - 1.0)")
 
     model_config = {"str_strip_whitespace": True}
 
@@ -232,5 +325,6 @@ class OptimizationResult(BaseModel):
     )
     phase: str = Field(default="Phase 5 - CP-SAT Optimization", description="Pipeline phase")
     notes: Optional[str] = Field(default=None, description="Prototype notes and disclaimer summary")
+    validation: Optional[Dict[str, Any]] = Field(default=None, description="Independent Phase 3 validation report")
 
     model_config = {"str_strip_whitespace": True}

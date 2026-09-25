@@ -141,7 +141,13 @@ export default function BlockTable({
                       <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {b.reason || b.maintenance_type || 'Routine Possession'}
                       </td>
-                      <td><PriorityBadge priority={b.priority} /></td>
+                      <td>
+                        <PriorityBadge
+                          priority={b.priority}
+                          value={b.priority_value != null ? b.priority_value : b.priority_enrichment?.priority_value}
+                          showValue={(b.priority_value != null || b.priority_enrichment?.priority_value != null)}
+                        />
+                      </td>
                       <td><StatusBadge status={b.status} /></td>
                       <td>
                         <span className="badge badge-outline">{b.source || 'BDMS'}</span>

@@ -45,7 +45,22 @@ import { getMovements } from './services/movements';
 import { getTimetable } from './services/timetable';
 import { getGoodsForecast, runGoodsForecast } from './services/forecast';
 import { detectConflicts } from './services/scheduler';
-import { optimizePlan, getLatestOptimizedPlan, resetOptimizationBaseline } from './services/plans';
+import {
+  optimizePlan,
+  getLatestOptimizedPlan,
+  resetOptimizationBaseline,
+  approvePlan,
+  publishPlan,
+  rejectPlan,
+  getPublishedPlans,
+} from './services/plans';
+import {
+  getConflictsForReview,
+  processConflicts,
+  resolveConflict,
+  rejectConflict,
+  deferConflict,
+} from './services/conflicts';
 
 function AppContent() {
   const { role, isOperator, isEmployee, setRole } = useAuth();
@@ -73,6 +88,7 @@ function AppContent() {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizationStep, setOptimizationStep] = useState(0);
   const [isForecasting, setIsForecasting] = useState(false);
+  const [isProcessingConflicts, setIsProcessingConflicts] = useState(false);
   const [selectedDetailBlock, setSelectedDetailBlock] = useState(null);
   const [toasts, setToasts] = useState([]);
 
@@ -362,6 +378,163 @@ function AppContent() {
     }
   };
 
+  // Conflict Human Verification Handlers (Operator Only)
+  const handleResolveConflict = async (conflictId, payload = {}) => {
+    if (!isOperator) {
+      addToast('Permission denied: Conflict resolution requires Operator role.', 'error');
+      return;
+    }
+
+    try {
+      addToast(`Resolving conflict ${conflictId}...`, 'info');
+      const res = await resolveConflict(conflictId, payload);
+      setConflicts((prev) =>
+        prev.map((c) =>
+          c.conflict_id === conflictId
+            ? { ...c, review_status: 'HUMAN_RESOLVED', status: 'HUMAN_RESOLVED', resolution_notes: payload.notes }
+            : c
+        )
+      );
+      addToast(`Conflict ${conflictId} resolved successfully.`, 'success');
+    } catch (err) {
+      console.error('Failed to resolve conflict:', err);
+      addToast(`Conflict resolution error: ${err.message}`, 'error');
+    }
+  };
+
+  const handleRejectConflict = async (conflictId, payload = {}) => {
+    if (!isOperator) {
+      addToast('Permission denied: Conflict rejection requires Operator role.', 'error');
+      return;
+    }
+
+    try {
+      addToast(`Rejecting conflict resolution proposal for ${conflictId}...`, 'info');
+      await rejectConflict(conflictId, payload);
+      setConflicts((prev) =>
+        prev.map((c) =>
+          c.conflict_id === conflictId
+            ? { ...c, review_status: 'REJECTED', status: 'REJECTED', rejection_reason: payload.reason }
+            : c
+        )
+      );
+      addToast(`Proposed resolution for conflict ${conflictId} was rejected.`, 'info');
+    } catch (err) {
+      console.error('Failed to reject conflict:', err);
+      addToast(`Rejection error: ${err.message}`, 'error');
+    }
+  };
+
+  const handleDeferConflict = async (conflictId, payload = {}) => {
+    if (!isOperator) {
+      addToast('Permission denied: Deferring conflict requires Operator role.', 'error');
+      return;
+    }
+
+    try {
+      addToast(`Deferring decision for conflict ${conflictId}...`, 'info');
+      await deferConflict(conflictId, payload);
+      setConflicts((prev) =>
+        prev.map((c) =>
+          c.conflict_id === conflictId
+            ? { ...c, review_status: 'DEFERRED', status: 'DEFERRED', defer_reason: payload.reason }
+            : c
+        )
+      );
+      addToast(`Conflict ${conflictId} deferred to next review cycle.`, 'info');
+    } catch (err) {
+      console.error('Failed to defer conflict:', err);
+      addToast(`Deferral error: ${err.message}`, 'error');
+    }
+  };
+
+  const handleProcessConflicts = async (params = {}) => {
+    if (!isOperator) {
+      addToast('Permission denied: AutoResolver scanning requires Operator role.', 'error');
+      return;
+    }
+
+    setIsProcessingConflicts(true);
+    try {
+      addToast('Scanning network and processing AutoResolver queues...', 'info');
+      const res = await processConflicts({
+        target_date: params.target_date || targetDate,
+        buffer_minutes: params.buffer_minutes || 15,
+      });
+
+      if (res && res.conflicts) {
+        setConflicts(res.conflicts);
+        addToast(`Conflict analysis updated: ${res.conflicts.length} incident(s) analyzed.`, 'success');
+      } else if (res && res.data) {
+        setConflicts(res.data);
+        addToast(`Conflict analysis updated: ${res.data.length} incident(s) analyzed.`, 'success');
+      }
+    } catch (err) {
+      console.error('Failed to process conflicts:', err);
+      addToast(`AutoResolver error: ${err.message}`, 'error');
+    } finally {
+      setIsProcessingConflicts(false);
+    }
+  };
+
+  // Plan Human Approval & Publication Handlers (Operator Only)
+  const handleApprovePlan = async (planId, payload = {}) => {
+    if (!isOperator) {
+      addToast('Permission denied: Plan approval requires Operator role.', 'error');
+      return;
+    }
+
+    try {
+      addToast(`Approving optimization plan ${planId}...`, 'info');
+      const res = await approvePlan(planId, payload);
+      setOptimizationResult((prev) =>
+        prev ? { ...prev, approval_status: 'APPROVED', approved: true, approved_at: new Date().toISOString() } : prev
+      );
+      addToast(`Plan ${planId} approved by Chief Controller / Operator. Ready for publication.`, 'success');
+    } catch (err) {
+      console.error('Failed to approve plan:', err);
+      addToast(`Plan approval error: ${err.message}`, 'error');
+    }
+  };
+
+  const handlePublishPlan = async (planId, payload = {}) => {
+    if (!isOperator) {
+      addToast('Permission denied: Plan publication requires Operator role.', 'error');
+      return;
+    }
+
+    try {
+      addToast(`Publishing plan ${planId} to live operational network...`, 'info');
+      const res = await publishPlan(planId, payload);
+      setOptimizationResult((prev) =>
+        prev ? { ...prev, approval_status: 'PUBLISHED', published: true, published_at: new Date().toISOString() } : prev
+      );
+      addToast(`Plan ${planId} published to operational network. Employees notified.`, 'success');
+    } catch (err) {
+      console.error('Failed to publish plan:', err);
+      addToast(`Plan publication error: ${err.message}`, 'error');
+    }
+  };
+
+  const handleRejectPlan = async (planId, payload = {}) => {
+    if (!isOperator) {
+      addToast('Permission denied: Plan rejection requires Operator role.', 'error');
+      return;
+    }
+
+    try {
+      addToast(`Rejecting plan ${planId}...`, 'info');
+      await rejectPlan(planId, payload);
+      setOptimizationResult((prev) =>
+        prev ? { ...prev, approval_status: 'REJECTED', approved: false, published: false } : prev
+      );
+      addToast(`Plan ${planId} rejected. Please configure re-optimization parameters.`, 'warning');
+    } catch (err) {
+      console.error('Failed to reject plan:', err);
+      addToast(`Plan rejection error: ${err.message}`, 'error');
+    }
+  };
+
   const getPageTitle = () => {
     const page = route.page;
     if (isOperator) {
@@ -393,6 +566,12 @@ function AppContent() {
 
   const activePageKey = route.page;
 
+  const activeConflictCount = useMemo(() => {
+    return conflicts.filter(
+      (c) => c.review_status !== 'HUMAN_RESOLVED' && c.status !== 'HUMAN_RESOLVED'
+    ).length;
+  }, [conflicts]);
+
   return (
     <div className="app-shell">
       {/* Mobile Drawer Backdrop */}
@@ -411,7 +590,7 @@ function AppContent() {
             handlePageNavigate(pageId, customPath);
           }}
           isOnline={isOnline}
-          conflictCount={conflicts.length}
+          conflictCount={activeConflictCount}
           forecastCount={forecasts.length}
           pendingBlockCount={blocks.filter((b) => (b.status || '').toLowerCase() === 'requested').length}
           mobileOpen={mobileNavOpen}
@@ -426,7 +605,7 @@ function AppContent() {
             handlePageNavigate(pageId, customPath);
           }}
           isOnline={isOnline}
-          conflictCount={conflicts.length}
+          conflictCount={activeConflictCount}
           forecastCount={forecasts.length}
           mobileOpen={mobileNavOpen}
           onCloseMobile={() => setMobileNavOpen(false)}
@@ -545,6 +724,12 @@ function AppContent() {
                   optimizationResult={optimizationResult}
                   optimizationStep={optimizationStep}
                   onSelectBlock={setSelectedDetailBlock}
+                  onApprovePlan={handleApprovePlan}
+                  onPublishPlan={handlePublishPlan}
+                  onRejectPlan={handleRejectPlan}
+                  blocks={blocks}
+                  maintenance={maintenance}
+                  error={apiErrors.optimization}
                 />
               )}
 
@@ -556,6 +741,11 @@ function AppContent() {
                   error={apiErrors.conflicts}
                   onRetry={fetchAllData}
                   targetDate={targetDate}
+                  onResolveConflict={handleResolveConflict}
+                  onRejectConflict={handleRejectConflict}
+                  onDeferConflict={handleDeferConflict}
+                  onProcessConflicts={handleProcessConflicts}
+                  isProcessing={isProcessingConflicts}
                 />
               )}
             </>

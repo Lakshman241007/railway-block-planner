@@ -120,7 +120,13 @@ export default function Maintenance({ maintenanceRecords = [], loading = false, 
                           <span className="badge badge-outline">{m.equipment || 'Standard'}</span>
                         </td>
                         <td className="table-cell-mono">{m.required_resources || 1}</td>
-                        <td><PriorityBadge priority={m.priority} /></td>
+                        <td>
+                          <PriorityBadge
+                            priority={m.priority}
+                            value={m.priority_value != null ? m.priority_value : m.priority_enrichment?.priority_value}
+                            showValue={(m.priority_value != null || m.priority_enrichment?.priority_value != null)}
+                          />
+                        </td>
                         <td><StatusBadge status={m.status} /></td>
                       </tr>
                     ))

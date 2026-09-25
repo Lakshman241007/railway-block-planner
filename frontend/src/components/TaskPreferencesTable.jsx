@@ -28,7 +28,11 @@ function TaskPreferenceRow({
       </td>
       <td style={{ fontSize: '0.85rem' }}>{task.location}</td>
       <td>
-        <PriorityBadge priority={task.basePriority} />
+        <PriorityBadge
+          priority={task.basePriority}
+          value={task.priorityValue != null ? task.priorityValue : task.priority_value}
+          showValue={(task.priorityValue != null || task.priority_value != null)}
+        />
       </td>
       <td>
         <select

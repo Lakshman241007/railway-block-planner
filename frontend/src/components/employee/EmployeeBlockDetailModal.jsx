@@ -1,6 +1,7 @@
 import React from 'react';
 import PriorityBadge from '../PriorityBadge';
 import StatusBadge from '../StatusBadge';
+import MaintenancePrioritySection from '../MaintenancePrioritySection';
 
 /**
  * Genuinely Read-Only Block Detail Inspector for Employee / Monitoring Dashboard.
@@ -55,7 +56,11 @@ export default function EmployeeBlockDetailModal({ block, onClose }) {
             </div>
             <div style={{ borderLeft: '1px solid #334155', paddingLeft: 12 }}>
               <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 2 }}>SAFETY PRIORITY</div>
-              <PriorityBadge priority={block.priority || 'Medium'} />
+              <PriorityBadge
+                priority={block.priority || 'Medium'}
+                value={block.priority_value != null ? block.priority_value : block.priority_enrichment?.priority_value}
+                showValue={(block.priority_value != null || block.priority_enrichment?.priority_value != null)}
+              />
             </div>
             <div style={{ borderLeft: '1px solid #334155', paddingLeft: 12 }}>
               <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 2 }}>BLOCK TYPE</div>
@@ -136,6 +141,9 @@ export default function EmployeeBlockDetailModal({ block, onClose }) {
               {block.reason || 'Preventive track maintenance and inspection.'}
             </div>
           </div>
+
+          {/* Phase 5 — Maintenance Priority & Explainability Section */}
+          <MaintenancePrioritySection block={block} />
 
           {/* Security & Role Notice */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: 4, border: '1px solid rgba(16, 185, 129, 0.2)', fontSize: '0.72rem', color: '#94a3b8' }}>

@@ -3,6 +3,8 @@ import StatCard from './StatCard';
 import PriorityBadge from './PriorityBadge';
 import StatusBadge from './StatusBadge';
 import EmptyState from './EmptyState';
+import OptimizationDecisionPipeline from './OptimizationDecisionPipeline';
+import PlanApprovalSection from './PlanApprovalSection';
 
 export default function OptimizationPanel({
   targetDate,
@@ -12,6 +14,12 @@ export default function OptimizationPanel({
   optimizationResult,
   optimizationStep = 0, // 0: idle, 1: building, 2: solving, 3: complete
   onSelectBlock,
+  onApprovePlan,
+  onPublishPlan,
+  onRejectPlan,
+  blocks = [],
+  maintenance = [],
+  error = null,
 }) {
   const [horizonDays, setHorizonDays] = useState(7);
   const [includeForecast, setIncludeForecast] = useState(true);
@@ -135,6 +143,30 @@ export default function OptimizationPanel({
           )}
         </div>
       </div>
+
+      {/* Phase 6 — Optimization Decision Pipeline */}
+      <OptimizationDecisionPipeline
+        optimizationResult={optimizationResult}
+        isOptimizing={isOptimizing}
+        optimizationStep={optimizationStep}
+        targetDate={targetDate}
+        blocks={blocks}
+        maintenance={maintenance}
+        error={error}
+        onSelectBlock={onSelectBlock}
+      />
+
+      {/* Plan Human Verification & Approval Section */}
+      {optimizationResult && (
+        <PlanApprovalSection
+          optimizationResult={optimizationResult}
+          onApprovePlan={onApprovePlan}
+          onPublishPlan={onPublishPlan}
+          onRejectPlan={onRejectPlan}
+          isOperator={true}
+          targetDate={targetDate}
+        />
+      )}
 
       {/* Idle / Not Run State */}
       {!optimizationResult && !isOptimizing && (

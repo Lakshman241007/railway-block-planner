@@ -31,15 +31,20 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.dependencies import get_db, require_operator_role
 from backend.app.block_planner.planner import BlockPlanner
-from backend.app.block_planner.schemas import BlockPlanRequest, BlockPlanResult
-from backend.app.database.repositories import (
-    BlockRepository,
-    MaintenanceRepository,
-    OptimizedPlanRepository,
+from backend.app.block_planner.schemas import (
+    BlockPlanRequest,
+    BlockPlanResult,
+    DailyProblemRequest,
+    DailySchedulingProblem,
+    MonthlyPlan,
+    MonthlyPlanRequest,
+    WeeklyPlan,
+    WeeklyPlanRequest,
 )
-from backend.app.database.seed import seed_database
+from backend.app.database.repositories import BlockRepository, OptimizedPlanRepository
 from backend.app.optimizer.schemas import OptimizationRequest, OptimizationResult
 from backend.app.optimizer.validator import validate_final_plan
+from backend.app.services.scheduling_service import SchedulingService
 
 logger = logging.getLogger(__name__)
 
@@ -116,24 +121,28 @@ def list_optimized_plans(
     response_description="Full OptimizationResult for the most recent plan on the requested date",
 )
 def get_latest_optimized_plan(
-    target_date: Optional[str] = Query(None, description="Target date (YYYY-MM-DD). Defaults to today."),
+    target_date: Optional[str] = Query(None, description="Target date (YYYY-MM-DD). If omitted, returns latest plan."),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """
-    Retrieve the most recently generated CP-SAT plan for a given target date.
+    Retrieve the most recently generated CP-SAT plan, optionally for a given target date.
 
     This endpoint is used by the frontend to restore the optimization result
     after a browser refresh without re-running the solver.
 
-    Returns 404 if no plan has been generated for the specified date.
+    Returns 404 if no plan has been generated.
     """
-    target_d_str = target_date or date.today().isoformat()
     repo = OptimizedPlanRepository(db)
-    plan = repo.get_latest_by_date(target_d_str)
+    plan = repo.get_latest(target_date)
     if not plan:
+        detail_msg = (
+            f"No optimized plan found for target date '{target_date}'. Run POST /api/plans/optimize first."
+            if target_date
+            else "No optimized plan found. Run POST /api/plans/optimize first."
+        )
         raise HTTPException(
             status_code=404,
-            detail=f"No optimized plan found for target date '{target_d_str}'. Run POST /api/plans/optimize first.",
+            detail=detail_msg,
         )
     try:
         result_data = json.loads(plan.result_json)
@@ -186,6 +195,66 @@ def get_optimized_plan_by_id(
 
 
 # ---------------------------------------------------------------------------
+# POST /api/plans/monthly — 30-day tactical monthly plan
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/monthly",
+    summary="Generate 30-day tactical monthly plan",
+    response_model=MonthlyPlan,
+)
+def generate_monthly_plan(
+    request: Optional[MonthlyPlanRequest] = None,
+    db: Session = Depends(get_db),
+) -> MonthlyPlan:
+    """
+    Generate 30-day tactical maintenance plan partitioning requirements across week buckets (1 to 5).
+    """
+    req = request or MonthlyPlanRequest()
+    return SchedulingService.generate_monthly_plan(request=req, db=db)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/plans/weekly — 7-day tactical weekly plan
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/weekly",
+    summary="Generate 7-day tactical weekly plan",
+    response_model=WeeklyPlan,
+)
+def generate_weekly_plan(
+    request: Optional[WeeklyPlanRequest] = None,
+    db: Session = Depends(get_db),
+) -> WeeklyPlan:
+    """
+    Generate 7-day weekly plan organizing work by specific target service date.
+    """
+    req = request or WeeklyPlanRequest()
+    return SchedulingService.generate_weekly_plan(request=req, db=db)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/plans/daily-problem — Prepare canonical DailySchedulingProblem
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/daily-problem",
+    summary="Prepare canonical DailySchedulingProblem from operational data",
+    response_model=DailySchedulingProblem,
+)
+def prepare_daily_problem(
+    request: Optional[DailyProblemRequest] = None,
+    db: Session = Depends(get_db),
+) -> DailySchedulingProblem:
+    """
+    Prepare canonical DailySchedulingProblem contract from operational data for downstream scheduling.
+    """
+    req = request or DailyProblemRequest()
+    return SchedulingService.prepare_daily_problem(request=req, db=db)
+
+
+# ---------------------------------------------------------------------------
 # POST /api/plans/generate — Phase 4 heuristic plan (non-persisted)
 # ---------------------------------------------------------------------------
 
@@ -197,7 +266,6 @@ def get_optimized_plan_by_id(
 def generate_block_plan(
     request: Optional[BlockPlanRequest] = None,
     db: Session = Depends(get_db),
-    _role: str = Depends(require_operator_role),
 ) -> BlockPlanResult:
     """
     Generate an end-to-end maintenance block plan orchestrating:
@@ -269,6 +337,12 @@ def optimize_block_plan(
             fc_res = forecaster.predict(target_date=day_date, horizon_hours=24)
             forecast_items.extend(fc_res.forecasts)
 
+        maint_recs = [m.to_pydantic() for m in MaintenanceRepository(db).get_all(limit=1000)]
+        block_recs = [b.to_pydantic() for b in BlockRepository(db).get_all(limit=1000)]
+        all_sources = list(maint_recs) + list(block_recs)
+        if req.candidate_works:
+            all_sources.extend(req.candidate_works)
+
         validation = validate_final_plan(
             plan=result,
             trains=trains,
@@ -276,12 +350,19 @@ def optimize_block_plan(
             goods_forecasts=forecast_items,
             movements=movements,
             buffer_minutes=req.buffer_minutes,
+            source_requests=all_sources,
+            available_windows=req.available_windows,
         )
-        if not validation["is_valid"]:
+        if validation.get("is_valid") is False:
             logger.warning(
                 "Final plan '%s' failed independent validation: %s",
                 result.plan_id,
                 validation.get("violations"),
+            )
+            violations_detail = "; ".join(validation.get("violations", ["Validation failed"]))
+            raise HTTPException(
+                status_code=422,
+                detail=f"Final plan validation failed for plan '{result.plan_id}': {violations_detail}",
             )
         else:
             logger.info(
@@ -289,51 +370,18 @@ def optimize_block_plan(
                 result.plan_id,
                 len(result.scheduled_blocks),
             )
+            result.validation = validation
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.warning("Final plan validation error (non-fatal): %s", exc)
         validation = {"is_valid": None, "error": str(exc)}
+        result.validation = validation
 
     # -----------------------------------------------------------------------
-    # Update block & maintenance records: schedule, times, status
+    # Persist plan to DB and update block statuses (Transaction Safety)
     # -----------------------------------------------------------------------
     from backend.app.optimizer.schemas import OptimizationStatus
-    if result.status in (OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE):
-        block_repo = BlockRepository(db)
-        maint_repo = MaintenanceRepository(db)
-
-        for b in result.scheduled_blocks:
-            bid = b.block_request_id or b.request_id
-            if bid:
-                existing = block_repo.get_by_id(bid)
-                if existing:
-                    try:
-                        update_fields: Dict[str, Any] = {"status": "Approved"}
-                        if b.start_time:
-                            update_fields["requested_start"] = b.start_time
-                        if b.end_time:
-                            update_fields["requested_end"] = b.end_time
-                        if b.service_date:
-                            update_fields["requested_date"] = b.service_date
-                        block_repo.update(bid, update_fields)
-                    except Exception as exc:
-                        logger.warning("Could not update block status for '%s': %s", bid, exc)
-
-            if b.asset_id:
-                try:
-                    maint_record = maint_repo.get_by_identifier(b.asset_id)
-                    if maint_record:
-                        maint_update: Dict[str, Any] = {"status": "Approved"}
-                        if b.start_time:
-                            maint_update["preferred_start"] = b.start_time
-                        if b.service_date:
-                            maint_update["requested_date"] = b.service_date
-                        maint_repo.update(maint_record.id, maint_update)
-                except Exception as exc:
-                    logger.warning("Could not update maintenance record for asset '%s': %s", b.asset_id, exc)
-
-    # -----------------------------------------------------------------------
-    # Persist plan to DB
-    # -----------------------------------------------------------------------
     plan_repo = OptimizedPlanRepository(db)
     try:
         result_json_str = result.model_dump_json()
@@ -352,40 +400,31 @@ def optimize_block_plan(
             "wall_time_seconds": stats.wall_time_seconds,
             "result_json": result_json_str,
         }
-        plan_repo.create(plan_data)
+        plan_repo.save_or_update(plan_data)
         logger.info("Optimized plan '%s' persisted to DB.", result.plan_id)
+
+        # Update block statuses: scheduled → Approved
+        if result.status in (OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE):
+            block_repo = BlockRepository(db)
+            scheduled_block_request_ids = {
+                b.block_request_id or b.request_id
+                for b in result.scheduled_blocks
+                if b.block_request_id or b.request_id
+            }
+            for bid in scheduled_block_request_ids:
+                existing = block_repo.get_by_id(bid)
+                if existing and existing.status in ("Requested",):
+                    block_repo.update(bid, {"status": "Approved"})
+
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as exc:
-        # Persistence failure must not mask the optimization result
+        db.rollback()
         logger.error("Failed to persist optimized plan '%s': %s", result.plan_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database persistence failure for plan '{result.plan_id}': {exc}",
+        )
 
     return result
-
-
-# ---------------------------------------------------------------------------
-# POST /api/plans/reset — Reset database to unoptimized baseline state
-# ---------------------------------------------------------------------------
-
-@router.post(
-    "/reset",
-    summary="Reset database to baseline unoptimized demo state",
-    response_description="Confirmation of baseline reset and updated record counts",
-)
-def reset_baseline(
-    db: Session = Depends(get_db),
-    _role: str = Depends(require_operator_role),
-) -> Dict[str, Any]:
-    """
-    Reset operational database to clean, verified unoptimized baseline state.
-    Purges previous optimization plans and restores original conflicting requests.
-    """
-    try:
-        stats = seed_database(reset=True)
-        return {
-            "status": "success",
-            "message": "Database successfully reset to baseline un-optimized state.",
-            "statistics": stats,
-            "target_date": "2026-09-07",
-        }
-    except Exception as exc:
-        logger.exception("Failed to reset database: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Failed to reset baseline: {str(exc)}")

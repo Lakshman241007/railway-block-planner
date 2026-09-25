@@ -12,6 +12,7 @@
 import React, { useState, useEffect } from 'react';
 import PriorityBadge from './PriorityBadge';
 import StatusBadge from './StatusBadge';
+import MaintenancePrioritySection from './MaintenancePrioritySection';
 import { updateBlock } from '../services/blocks';
 import { updateMaintenance } from '../services/maintenance';
 
@@ -103,10 +104,17 @@ function DurationField({ isEditing, isMaintenance, block, editDraft, onDraftChan
 
 function PriorityField({ isEditing, block, editDraft, onDraftChange }) {
   if (!isEditing) {
+    const pVal = block.priority_value != null ? block.priority_value : block.priority_enrichment?.priority_value;
     return (
       <div className="detail-item">
         <span className="detail-label">Priority Tier</span>
-        <div><PriorityBadge priority={block.priority} /></div>
+        <div>
+          <PriorityBadge
+            priority={block.priority}
+            value={pVal}
+            showValue={pVal != null}
+          />
+        </div>
       </div>
     );
   }
@@ -270,6 +278,8 @@ function ModalBody({ block, sharedProps }) {
       </div>
 
       <ReasonField {...sharedProps} />
+
+      <MaintenancePrioritySection block={block} />
 
       {block.reason && block.reason.toLowerCase().includes('preempt') && (
         <div
